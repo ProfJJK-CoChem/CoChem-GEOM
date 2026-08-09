@@ -17,11 +17,9 @@ import numpy as np
 
 class MultireferenceInstabilityError(Exception):
     """Raised when T1 > 0.02 or D1 > 0.05, indicating wavefunction failure."""
-    pass
 
 class EngineConvergenceError(Exception):
     """Raised when ORCA fails to reach SCF or Geometry convergence."""
-    pass
 
 class ConstrainedORCAOptimizer:
     def __init__(self, workspace_dir: Path):
@@ -33,14 +31,33 @@ class ConstrainedORCAOptimizer:
         """
         Constructs the ORCA 6.1.1 input file, injecting specific %geom Constraints.
         frozen_zmat expects dictionaries: {"type": "Bond", "atoms": [0, 1]}
+        Parameterizes %pal and %maxcore via system config and detects open-shell UKS states.
         """
         inp_path = self.workspace_dir / f"{base_name}_ccsdt_refine.inp"
         
+        # Load hardware parameters
+        nprocs = int(os.environ.get("COCHEM_NPROCS", max(1, os.cpu_count() - 2)))
+        maxcore = int(os.environ.get("COCHEM_MAXCORE", 4000))
+        
+        config_path = self.workspace_dir / "cochem_system_config.json"
+        if config_path.exists():
+            try:
+                with open(config_path, "r") as f:
+                    cfg = json.load(f)
+                    nprocs = cfg.get("nprocs", nprocs)
+                    maxcore = cfg.get("maxcore", maxcore)
+            except Exception as ex:
+                self.logger.debug(f"System config read failed: {ex}")
+
+        # Detect open-shell radical state
+        is_open_shell = (mult > 1)
+        method_keyword = "UKS U-DLPNO-CCSD(T)" if is_open_shell else "DLPNO-CCSD(T)"
+        
         # Base DLPNO-CCSD(T) header for optimization
         header = (
-            f"! DLPNO-CCSD(T) def2-TZVPP def2-TZVPP/C def2/J TightSCF TightOpt\n"
-            f"%pal nprocs {max(1, os.cpu_count() - 2)} end\n"
-            f"%maxcore {int(4000)} # Set per core\n"
+            f"! {method_keyword} def2-TZVPP def2-TZVPP/C def2/J TightSCF TightOpt\n"
+            f"%pal nprocs {nprocs} end\n"
+            f"%maxcore {maxcore} # Set per core\n"
         )
 
         # Coordinate block
@@ -135,18 +152,18 @@ if __name__ == "__main__":
     
     refiner = ConstrainedORCAOptimizer(test_dir)
     
-    # Mock H2O geometry with a frozen O-H bond
-    mock_elements = ["O", "H", "H"]
-    mock_coords = np.array([
+    # Sample H2O geometry with a frozen O-H bond
+    sample_elements = ["O", "H", "H"]
+    sample_coords = np.array([
         [0.000000, 0.000000, 0.117790],
         [0.000000, 0.755450, -0.471161],
         [0.000000, -0.755450, -0.471161]
     ])
-    mock_frozen = [
+    sample_frozen = [
         {"type": "Bond", "atoms": [0, 1]},
         {"type": "Angle", "atoms": [1, 0, 2]}
     ]
     
-    inp_file = refiner.generate_input("mock_water", mock_elements, mock_coords, mock_frozen)
+    inp_file = refiner.generate_input("sample_water", sample_elements, sample_coords, sample_frozen)
     
     print(f"Generated input file at {inp_file}. Review contents to verify strict ORCA 6.1.1 constraint syntax.")

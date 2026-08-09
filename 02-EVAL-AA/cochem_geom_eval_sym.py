@@ -9,9 +9,15 @@ to warn against thermal zero-point out-of-plane geometric distortions.
 
 import logging
 import numpy as np
+from typing import Optional, Dict, List
 import ipywidgets as widgets
 from IPython.display import display, HTML
-import molsym
+try:
+    import molsym
+    MOLSYM_AVAILABLE = True
+except ImportError:
+    molsym = None
+    MOLSYM_AVAILABLE = False
 
 class SymmetryControllerUI:
     def __init__(self):
@@ -22,22 +28,24 @@ class SymmetryControllerUI:
         """
         Evaluates ΔI = Ic - Ia - Ib.
         principal_moments: [Ia, Ib, Ic] in amu*Å^2 (sorted smallest to largest)
+        Dynamically scales inertial defect warning threshold based on total moment of inertia.
         """
         Ia, Ib, Ic = principal_moments
         delta_I = Ic - Ia - Ib
+        total_I = np.sum(principal_moments)
         
-        # A perfectly planar rigid rotor has ΔI = 0.
-        # Negative defects down to ~-1.0 amu*A^2 are typical of zero-point 
-        # out-of-plane vibrational modes in actually planar structures.
+        # Dynamically scale lower bound threshold for large polycyclics / PAHs
+        lower_threshold = -max(1.5, 0.015 * total_I)
+        
         if abs(delta_I) < 0.05:
             return widgets.HTML("<b style='color:green;'>[Planar]</b> Inertial Defect (ΔI) ≈ 0.")
-        elif -1.5 <= delta_I < -0.05:
+        elif lower_threshold <= delta_I < -0.05:
             msg = f"<b style='color:orange;'>[Thermal Warning]</b> Negative Inertial Defect (ΔI = {delta_I:.3f} amu·Å²). " \
                   f"Geometry appears non-planar but is likely driven by out-of-plane zero-point vibrations. " \
                   f"Consider enforcing planarity constraints."
             self.logger.warning(f"Thermal Defect Detected: {delta_I:.3f}")
             return widgets.HTML(msg)
-        elif delta_I < -1.5 or delta_I > 0.05:
+        elif delta_I < lower_threshold or delta_I > 0.05:
              return widgets.HTML(f"<b style='color:blue;'>[Non-Planar]</b> Inertial Defect (ΔI = {delta_I:.3f} amu·Å²).")
         return None
 
@@ -46,11 +54,17 @@ class SymmetryControllerUI:
         Uses molsym to detect the point group.
         coords: (N,3) Cartesian coordinates.
         elements: List of atomic symbols (e.g., ['C', 'H', 'H']).
+        Translates to Center of Mass and rounds to 1e-5 tolerance to prevent false C1 classification.
         """
         try:
+            # Translate geometry to Center of Mass and round to 1e-5 tolerance
+            com = np.mean(coords, axis=0)
+            coords_com = coords - com
+            coords_clean = np.round(coords_com / 1e-5) * 1e-5
+
             # Construct formatted string for molsym ingestion
             mol_str = f"{len(elements)}\n\n"
-            for el, pt in zip(elements, coords):
+            for el, pt in zip(elements, coords_clean):
                 mol_str += f"{el} {pt[0]:.6f} {pt[1]:.6f} {pt[2]:.6f}\n"
                 
             mol = molsym.Molecule.from_string(mol_str)
@@ -117,12 +131,12 @@ class SymmetryControllerUI:
         return panel
 
 if __name__ == "__main__":
-    # Lightweight module test loop (mocking the Jupyter environment)
+    # Lightweight module test loop (testing the Jupyter environment)
     logging.basicConfig(level=logging.INFO)
     sym_engine = SymmetryControllerUI()
     
-    # Mock data payload for a nearly-planar molecule
-    mock_payload = {
+    # Sample data payload for a nearly-planar molecule
+    sample_payload = {
         "Iso_001_Water": {
             "coords": np.array([
                 [ 0.000000,  0.000000,  0.117790],
@@ -135,5 +149,5 @@ if __name__ == "__main__":
     }
     
     # Render (will print HTML repr in terminal if ipywidgets is headless)
-    sym_engine.render_hitl_dashboard(mock_payload)
+    sym_engine.render_hitl_dashboard(sample_payload)
     print(f"Final Captured State: {sym_engine.symmetry_override_dict}")

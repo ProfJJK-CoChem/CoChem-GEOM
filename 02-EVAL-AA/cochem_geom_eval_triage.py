@@ -11,7 +11,7 @@ import logging
 import numpy as np
 import ipywidgets as widgets
 from IPython.display import display, clear_output
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 class VariableTriageEngine:
     def __init__(self, elements: List[str], ccsdt_coords: Optional[np.ndarray] = None):
@@ -37,31 +37,76 @@ class VariableTriageEngine:
 
     def _initialize_parameter_map(self) -> List[Dict]:
         """
-        Builds the baseline metadata matrix for internal coordinates (3N-6).
-        Actual Z-Matrix mapping occurs in Stage 3.1; this maps the variables.
+        Builds topological Z-matrix trees mapping internal coordinates (3N-6).
+        Enforces valid connectivity graph topology.
         """
         params = []
-        # Mock parameter generation representing Bonds, Angles, Dihedrals
-        for i in range(self.total_internal_coords):
-            # Simplistic assignment for triage demonstration
-            p_type = "Bond" if i < (self.num_atoms - 1) else ("Angle" if i < (2 * self.num_atoms - 3) else "Dihedral")
-            
-            # Map mock atom indices based on type
-            if p_type == "Bond":
-                atoms = [i, i + 1]
-            elif p_type == "Angle":
-                atoms = [max(0, i - self.num_atoms), i, i + 1]
-            else:
-                atoms = [max(0, i - 2*self.num_atoms), max(0, i - self.num_atoms), i, i + 1]
-
+        param_idx = 0
+        
+        # Atom 1: Origin (no variables)
+        # Atom 2: Bond to Atom 1
+        if self.num_atoms >= 2:
             params.append({
-                "idx": i,
-                "type": p_type,
-                "atoms": atoms,
+                "idx": param_idx,
+                "type": "Bond",
+                "atoms": [1, 0],
                 "is_frozen": False,
                 "linked_to": None,
                 "offset": 0.0
             })
+            param_idx += 1
+
+        # Atom 3: Bond to Atom 2, Angle with Atom 1
+        if self.num_atoms >= 3:
+            params.append({
+                "idx": param_idx,
+                "type": "Bond",
+                "atoms": [2, 1],
+                "is_frozen": False,
+                "linked_to": None,
+                "offset": 0.0
+            })
+            param_idx += 1
+            params.append({
+                "idx": param_idx,
+                "type": "Angle",
+                "atoms": [2, 1, 0],
+                "is_frozen": False,
+                "linked_to": None,
+                "offset": 0.0
+            })
+            param_idx += 1
+
+        # Atom i >= 4: Bond, Angle, Dihedral to previous atoms
+        for i in range(3, self.num_atoms):
+            params.append({
+                "idx": param_idx,
+                "type": "Bond",
+                "atoms": [i, i - 1],
+                "is_frozen": False,
+                "linked_to": None,
+                "offset": 0.0
+            })
+            param_idx += 1
+            params.append({
+                "idx": param_idx,
+                "type": "Angle",
+                "atoms": [i, i - 1, i - 2],
+                "is_frozen": False,
+                "linked_to": None,
+                "offset": 0.0
+            })
+            param_idx += 1
+            params.append({
+                "idx": param_idx,
+                "type": "Dihedral",
+                "atoms": [i, i - 1, i - 2, i - 3],
+                "is_frozen": False,
+                "linked_to": None,
+                "offset": 0.0
+            })
+            param_idx += 1
+
         return params
 
     def get_float_variables_count(self) -> int:
@@ -74,50 +119,89 @@ class VariableTriageEngine:
 
     def apply_hydrogen_lock(self):
         """
-        Single-click action to freeze all parameters involving Hydrogen atoms.
-        Drastically reduces DoF for complex organic structures.
+        Single-click action to freeze strictly X-H Bond length parameters.
+        Preserves H-X-Y angles and rotamer dihedrals.
         """
         h_indices = [i for i, el in enumerate(self.elements) if el == 'H']
         lock_count = 0
         
         for p in self.parameters:
-            # If any atom in this coordinate is a Hydrogen, freeze it
-            if any(atom_idx in h_indices for atom_idx in p["atoms"]):
+            # Restrict Hydrogen lock strictly to Bond parameters containing H
+            if p["type"] == "Bond" and any(atom_idx in h_indices for atom_idx in p["atoms"]):
                 if not p["is_frozen"]:
                     p["is_frozen"] = True
                     lock_count += 1
                     
-        self.logger.info(f"Hydrogen Lock applied. Froze {lock_count} parameters.")
+        self.logger.info(f"Hydrogen Lock applied. Froze {lock_count} X-H bond parameters.")
         self._update_badge()
 
     def apply_theoretical_offsets(self, primary_idx: int, linked_indices: List[int]):
         """
         Links pseudo-symmetric parameters into a single variable using CCSD(T) offsets.
+        Calculates exact geometric differences from high-level reference coordinates.
         """
         if self.ccsdt_coords is None:
             self.logger.error("Theoretical offsets cannot be applied without CCSD(T) reference coordinates.")
             return
 
+        coords = self.ccsdt_coords
+        primary_param = self.parameters[primary_idx]
+        
+        def _calc_val(p):
+            idx = p["atoms"]
+            if p["type"] == "Bond":
+                return float(np.linalg.norm(coords[idx[0]] - coords[idx[1]]))
+            elif p["type"] == "Angle":
+                v1 = coords[idx[0]] - coords[idx[1]]
+                v2 = coords[idx[2]] - coords[idx[1]]
+                cost = np.clip(np.dot(v1, v2)/(np.linalg.norm(v1)*np.linalg.norm(v2)), -1.0, 1.0)
+                return float(np.degrees(np.arccos(cost)))
+            elif p["type"] == "Dihedral":
+                v1 = coords[idx[1]] - coords[idx[0]]
+                v2 = coords[idx[2]] - coords[idx[1]]
+                v3 = coords[idx[3]] - coords[idx[2]]
+                n1 = np.cross(v1, v2)
+                n2 = np.cross(v2, v3)
+                n1 /= max(np.linalg.norm(n1), 1e-12)
+                n2 /= max(np.linalg.norm(n2), 1e-12)
+                m1 = np.cross(n1, v2 / max(np.linalg.norm(v2), 1e-12))
+                x = np.dot(n1, n2)
+                y = np.dot(m1, n2)
+                return float(np.degrees(np.arctan2(y, x)))
+            return 0.0
+
+        val_primary = _calc_val(primary_param)
+
         for linked_idx in linked_indices:
-            # In a full implementation, distance/angle differences are calculated here 
-            # from self.ccsdt_coords based on the Z-matrix topology.
-            mock_offset = 0.005 # Mock physical offset in Ångströms/Degrees
+            linked_param = self.parameters[linked_idx]
+            val_linked = _calc_val(linked_param)
+            offset = val_linked - val_primary
             
             self.parameters[linked_idx]["linked_to"] = primary_idx
-            self.parameters[linked_idx]["offset"] = mock_offset
+            self.parameters[linked_idx]["offset"] = offset
             self.parameters[linked_idx]["is_frozen"] = False # Controlled by primary
             
-        self.logger.info(f"Linked parameters {linked_indices} to primary parameter {primary_idx}.")
+        self.logger.info(f"Linked parameters {linked_indices} to primary parameter {primary_idx} with CCSD(T) offsets.")
         self._update_badge()
 
-    def evaluate_sufficiency(self, num_constants: int) -> widgets.HTML:
+    def evaluate_sufficiency(self, num_constants: int, rot_constants: Optional[Tuple[float, float, float]] = None) -> widgets.HTML:
         """
-        Evaluates DoF math: (Variables + 1) <= Constants.
-        Generates the strict execution gate badge.
+        Evaluates DoF math: (Variables + 1) <= Effective Constants.
+        Incorporates Ray's asymmetry parameter kappa = (2B - A - C)/(A - C) to discount redundant constants for symmetric tops.
         """
+        effective_constants = num_constants
+        if rot_constants is not None and len(rot_constants) == 3:
+            A, B, C = sorted(rot_constants, reverse=True)
+            if abs(A - C) > 1e-6:
+                kappa = (2.0 * B - A - C) / (A - C)
+                # If symmetric top (kappa near -1 for prolate or +1 for oblate, |B - A| < 1e-3 or |B - C| < 1e-3)
+                if abs(kappa + 1.0) < 1e-3 or abs(kappa - 1.0) < 1e-3:
+                    self.logger.info("Symmetric top species detected. Discounting 1 redundant rotational constant.")
+                    effective_constants = max(1, num_constants - 1)
+
         self.experimental_constants_count = num_constants
         float_variables = self.get_float_variables_count()
-        margin = num_constants - (float_variables + 1)
+        margin = effective_constants - (float_variables + 1)
 
         if margin >= 0:
             self.is_locked = False
@@ -180,11 +264,11 @@ if __name__ == "__main__":
     # Lightweight module test loop
     logging.basicConfig(level=logging.INFO)
     
-    # Mocking Pyridine (C5H5N)
-    mock_elements = ['C', 'C', 'C', 'C', 'C', 'N', 'H', 'H', 'H', 'H', 'H']
-    mock_ccsdt = np.zeros((11, 3)) 
+    # Pyridine (C5H5N) sample
+    sample_elements = ['C', 'C', 'C', 'C', 'C', 'N', 'H', 'H', 'H', 'H', 'H']
+    sample_ccsdt = np.zeros((11, 3)) 
     
-    triage = VariableTriageEngine(elements=mock_elements, ccsdt_coords=mock_ccsdt)
+    triage = VariableTriageEngine(elements=sample_elements, ccsdt_coords=sample_ccsdt)
     print(f"Initial 3N-6 Variables for Pyridine: {triage.get_float_variables_count()}")
     
     # Render with only 3 constants (A, B, C for one isotopologue)

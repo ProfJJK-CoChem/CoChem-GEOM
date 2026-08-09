@@ -9,35 +9,57 @@ covalent-radius-derived dynamic parameter bounds.
 
 import numpy as np
 from scipy.spatial.transform import Rotation
-import mendeleev
+try:
+    import mendeleev
+    MENDELEEV_AVAILABLE = True
+except ImportError:
+    mendeleev = None
+    MENDELEEV_AVAILABLE = False
 import logging
 from typing import List, Dict, Tuple
 
 class DynamicBoundsTuner:
     def __init__(self):
         self.logger = logging.getLogger("CoChem_GEOM_Bounds")
-        self._radii_cache = {}
+        self._radii_cache = {
+            "H": 0.31, "He": 0.28, "Li": 1.28, "Be": 0.96, "B": 0.84, "C": 0.76,
+            "N": 0.71, "O": 0.66, "F": 0.57, "Ne": 0.58, "Na": 1.66, "Mg": 1.41,
+            "Al": 1.21, "Si": 1.11, "P": 1.07, "S": 1.05, "Cl": 1.02, "Ar": 1.06,
+            "Br": 1.20, "I": 1.39
+        }
 
     def _get_covalent_radius(self, symbol: str) -> float:
-        """Retrieves and caches covalent radii from mendeleev in Ångströms."""
+        """Retrieves and caches covalent radii in Ångströms."""
         if symbol not in self._radii_cache:
             try:
-                # mendeleev returns pm, convert to Å
-                radius_pm = mendeleev.element(symbol).covalent_radius
-                self._radii_cache[symbol] = radius_pm / 100.0
-            except Exception as e:
-                self.logger.warning(f"Failed to fetch radius for {symbol}. Defaulting to 1.0 Å.")
-                self._radii_cache[symbol] = 1.0
+                if MENDELEEV_AVAILABLE:
+                    radius_pm = mendeleev.element(symbol).covalent_radius
+                    if radius_pm:
+                        self._radii_cache[symbol] = radius_pm / 100.0
+                        return self._radii_cache[symbol]
+            except Exception as ex:
+                self.logger.debug(f"Covalent radius lookup failed for {symbol}: {ex}")
+            self._radii_cache[symbol] = 1.0
         return self._radii_cache[symbol]
 
-    def get_bond_bounds(self, atom_A: str, atom_B: str) -> Tuple[float, float]:
+    def get_bond_bounds(self, atom_A: str, atom_B: str, bond_order: float = 1.0) -> Tuple[float, float]:
         """
-        Calculates dynamic bounds for a bond length.
+        Calculates dynamic bounds for a bond length, incorporating bond order.
         Returns: (lower_bound_A, upper_bound_A)
         """
         r_A = self._get_covalent_radius(atom_A)
         r_B = self._get_covalent_radius(atom_B)
-        base_length = r_A + r_B
+        
+        # Pyykkö bond-order scaling factor
+        bo_factor = 1.0
+        if bond_order >= 3.0:
+            bo_factor = 0.78
+        elif bond_order >= 2.0:
+            bo_factor = 0.88
+        elif bond_order > 1.0:
+            bo_factor = 0.94
+
+        base_length = (r_A + r_B) * bo_factor
         
         # Bond limits: -20% (compression) to +25% (elongation)
         lower = max(0.5, base_length * 0.80) 
@@ -63,7 +85,7 @@ class ZMatrixEngine:
         """
         Maps a given 3N Cartesian array to the target internal coordinates.
         params: List of dictionaries defining the required internal coordinates.
-        Returns: (M,) array of internal values.
+        Uses smooth arctan2 cross-product angle formulations to avoid derivative singularities.
         """
         internals = []
         for p in params:
@@ -74,10 +96,16 @@ class ZMatrixEngine:
             elif p["type"] == "Angle":
                 v1 = coords[idx[0]] - coords[idx[1]]
                 v2 = coords[idx[2]] - coords[idx[1]]
-                cos_theta = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
-                # Clip to prevent arccos domain errors
-                cos_theta = np.clip(cos_theta, -1.0, 1.0)
-                internals.append(np.arccos(cos_theta))
+                norm1 = np.linalg.norm(v1)
+                norm2 = np.linalg.norm(v2)
+                if norm1 < 1e-8 or norm2 < 1e-8:
+                    internals.append(0.0)
+                    continue
+                v1_u = v1 / norm1
+                v2_u = v2 / norm2
+                sin_theta = np.linalg.norm(np.cross(v1_u, v2_u))
+                cos_theta = np.clip(np.dot(v1_u, v2_u), -1.0, 1.0)
+                internals.append(np.arctan2(sin_theta, cos_theta))
             elif p["type"] == "Dihedral":
                 v1 = coords[idx[1]] - coords[idx[0]]
                 v2 = coords[idx[2]] - coords[idx[1]]
@@ -85,10 +113,16 @@ class ZMatrixEngine:
                 
                 n1 = np.cross(v1, v2)
                 n2 = np.cross(v2, v3)
-                n1 /= np.linalg.norm(n1)
-                n2 /= np.linalg.norm(n2)
+                norm1 = np.linalg.norm(n1)
+                norm2 = np.linalg.norm(n2)
+                if norm1 < 1e-8 or norm2 < 1e-8:
+                    internals.append(0.0)
+                    continue
+                n1 /= norm1
+                n2 /= norm2
                 
-                m1 = np.cross(n1, v2 / np.linalg.norm(v2))
+                v2_u = v2 / max(np.linalg.norm(v2), 1e-8)
+                m1 = np.cross(n1, v2_u)
                 x = np.dot(n1, n2)
                 y = np.dot(m1, n2)
                 internals.append(np.arctan2(y, x))
@@ -131,31 +165,60 @@ class ZMatrixEngine:
 
     def compute_b_matrix(self, coords: np.ndarray, params: List[Dict], delta: float = 1e-5) -> np.ndarray:
         """
-        Numerically evaluates the Wilson B-Matrix (B_ij = d q_i / d x_j).
-        coords: (N, 3) Cartesian coordinates.
-        params: Definition of internal variables.
-        delta: Finite difference step size.
+        Evaluates the Wilson B-Matrix (B_ij = d q_i / d x_j) using analytical Wilson s-vectors.
         """
         num_atoms = coords.shape[0]
         num_internals = len(params)
         B_matrix = np.zeros((num_internals, num_atoms * 3))
-        
-        flat_coords = coords.flatten()
-        
-        for j in range(num_atoms * 3):
-            # Forward step
-            coords_fwd = flat_coords.copy()
-            coords_fwd[j] += delta
-            q_fwd = self.calculate_internal_coordinates(coords_fwd.reshape(-1, 3), params)
-            
-            # Backward step
-            coords_bwd = flat_coords.copy()
-            coords_bwd[j] -= delta
-            q_bwd = self.calculate_internal_coordinates(coords_bwd.reshape(-1, 3), params)
-            
-            # Central difference
-            B_matrix[:, j] = (q_fwd - q_bwd) / (2.0 * delta)
-            
+
+        for i, p in enumerate(params):
+            idx = p["atoms"]
+            if p["type"] == "Bond":
+                # s_1 = (r_1 - r_2) / |r_1 - r_2|, s_2 = -s_1
+                r1, r2 = coords[idx[0]], coords[idx[1]]
+                diff = r1 - r2
+                dist = np.linalg.norm(diff)
+                u = diff / max(dist, 1e-12)
+                B_matrix[i, idx[0]*3:idx[0]*3+3] = u
+                B_matrix[i, idx[1]*3:idx[1]*3+3] = -u
+            elif p["type"] == "Angle":
+                # Analytical s-vector for angle 1-2-3 (vertex at 2)
+                r1, r2, r3 = coords[idx[0]], coords[idx[1]], coords[idx[2]]
+                v1 = r1 - r2
+                v2 = r3 - r2
+                d1 = np.linalg.norm(v1)
+                d2 = np.linalg.norm(v2)
+                if d1 > 1e-10 and d2 > 1e-10:
+                    u1 = v1 / d1
+                    u2 = v2 / d2
+                    cos_t = np.clip(np.dot(u1, u2), -1.0, 1.0)
+                    sin_t = max(np.sqrt(1.0 - cos_t**2), 1e-8)
+                    
+                    s1 = (cos_t * u1 - u2) / (d1 * sin_t)
+                    s3 = (cos_t * u2 - u1) / (d2 * sin_t)
+                    s2 = -(s1 + s3)
+                    
+                    B_matrix[i, idx[0]*3:idx[0]*3+3] = s1
+                    B_matrix[i, idx[1]*3:idx[1]*3+3] = s2
+                    B_matrix[i, idx[2]*3:idx[2]*3+3] = s3
+            else:
+                # Fallback to high-precision central difference for dihedrals
+                flat_coords = coords.flatten()
+                for j in range(num_atoms * 3):
+                    c_fwd = flat_coords.copy()
+                    c_fwd[j] += delta
+                    q_fwd = self.calculate_internal_coordinates(c_fwd.reshape(-1, 3), [p])[0]
+                    c_bwd = flat_coords.copy()
+                    c_bwd[j] -= delta
+                    q_bwd = self.calculate_internal_coordinates(c_bwd.reshape(-1, 3), [p])[0]
+                    
+                    # Handle dihedral wrap [-pi, pi]
+                    dq = q_fwd - q_bwd
+                    if dq > np.pi: dq -= 2*np.pi
+                    elif dq < -np.pi: dq += 2*np.pi
+                    
+                    B_matrix[i, j] = dq / (2.0 * delta)
+
         return B_matrix
 
 if __name__ == "__main__":
@@ -168,10 +231,10 @@ if __name__ == "__main__":
     
     engine = ZMatrixEngine()
     # Test rigid body removal (Kabsch/Eckart)
-    mock_ref = np.array([[0,0,0], [0,1,0], [1,0,0]], dtype=float)
+    ref_coords = np.array([[0,0,0], [0,1,0], [1,0,0]], dtype=float)
     # Apply a distinct physical rotation and shift
     rot = Rotation.from_euler('z', 45, degrees=True).as_matrix()
-    mock_new = np.dot(mock_ref, rot) + np.array([5.0, 5.0, 5.0])
+    new_coords = np.dot(ref_coords, rot) + np.array([5.0, 5.0, 5.0])
     
-    aligned = engine._apply_eckart_quaternion(mock_ref, mock_new)
-    print(f"Alignment Error: {np.linalg.norm(aligned - mock_ref):.2e}")
+    aligned = engine._apply_eckart_quaternion(ref_coords, new_coords)
+    print(f"Alignment Error: {np.linalg.norm(aligned - ref_coords):.2e}")

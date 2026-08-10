@@ -11,6 +11,7 @@ COM rebalancing, Latin Hypercube multi-seed optimization, SVD error propagation,
 and ORCA input hardware/open-shell config.
 """
 
+import os
 import sys
 from pathlib import Path
 import numpy as np
@@ -45,7 +46,8 @@ DynamicBoundsTuner = fitter_core_mod.DynamicBoundsTuner
 ZMatrixEngine = fitter_core_mod.ZMatrixEngine
 KraitchmanEngine = fitter_optim_mod.KraitchmanEngine
 MultiSeedOptimizer = fitter_optim_mod.MultiSeedOptimizer
-ConstrainedORCAOptimizer = ccsdt_refine_mod.ConstrainedORCAOptimizer
+ConstrainedORCAOptimizer = getattr(ccsdt_refine_mod, "ConstrainedORCAOptimizer", None)
+MPQCSinglePointEngine = getattr(ccsdt_refine_mod, "MPQCSinglePointEngine", None)
 GEOMReportLatexGenerator = reporter_latex_mod.GEOMReportLatexGenerator
 GEOMReportUIGenerator = reporter_ui_mod.GEOMReportUIGenerator
 
@@ -137,11 +139,11 @@ def test_fitter_core_and_optim():
 
 
 def test_ccsdt_refine_and_reporters(tmp_path):
-    refiner = ConstrainedORCAOptimizer(tmp_path)
+    refiner = MPQCSinglePointEngine(tmp_path)
     # Open-shell UKS test
-    inp = refiner.generate_input("radical", ["O", "H"], np.array([[0,0,0],[0,0,1]]), [], charge=0, mult=2)
+    inp = refiner.generate_input("radical", ["O", "H"], np.array([[0,0,0],[0,0,1]]), [], charge=0, mult=2, pyscf_escalator_optimized=True)
     content = inp.read_text()
-    assert "UKS U-DLPNO-CCSD(T)" in content
+    assert "UKS CCSD(T)-F12" in content
     
     latex_gen = GEOMReportLatexGenerator(tmp_path)
     tex = latex_gen.generate_rotational_constants_table({"Spec": {"A": {"value": 100.0}}}, {"Spec": {"A": {"value": 100.1}}})
@@ -150,3 +152,152 @@ def test_ccsdt_refine_and_reporters(tmp_path):
     ui_gen = GEOMReportUIGenerator(tmp_path)
     html = ui_gen.build_summary_html("Spec", {"A": 100.0}, {"A": 0.1}, rmsd_mhz=0.01)
     assert "CoChem-GEOM" in html
+
+
+def test_eckart_frame_alignment_and_decoupling():
+    eckart_mod = load_module_from_path("cochem_geom_eckart", repo_root / "01-INGEST-AA" / "cochem_geom_eckart.py")
+    aligner = eckart_mod.EckartFrameAligner()
+    
+    ref = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 1.1], [0.0, 1.0, 0.0]])
+    # Rotated target
+    rot_angle = np.pi / 6.0
+    R = np.array([
+        [np.cos(rot_angle), -np.sin(rot_angle), 0.0],
+        [np.sin(rot_angle), np.cos(rot_angle), 0.0],
+        [0.0, 0.0, 1.0]
+    ])
+    target = ref @ R + np.array([2.0, -1.0, 0.5])
+    masses = np.array([12.0, 1.0, 1.0])
+    
+    aligned, U_eckart, rot_residual = aligner.align_eckart_frame(ref, target, masses)
+    assert rot_residual < 1e-10
+
+    P_vib, T_Eckart = aligner.compute_decoupling_matrix(ref, masses)
+    assert P_vib.shape == (9, 9)
+    # Check projection operator property P_vib^2 == P_vib
+    assert np.allclose(P_vib @ P_vib, P_vib, atol=1e-6)
+
+
+def test_distance_hashing_and_deduplication():
+    hash_mod = load_module_from_path("cochem_geom_distance_hash", repo_root / "04-ANALYSIS" / "cochem_geom_distance_hash.py")
+    hasher = hash_mod.GeometryDistanceHasher()
+
+    coords = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 2.0, 0.0]])
+    # Rotated & translated copy
+    coords_transformed = coords @ np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]]) + 5.0
+    # Distinct conformer with changed bond lengths/angles
+    coords_distinct = np.array([[0.0, 0.0, 0.0], [1.8, 0.0, 0.0], [0.0, 2.5, 0.0]])
+
+    hash1, dists1 = hasher.compute_distance_hash(coords)
+    hash2, dists2 = hasher.compute_distance_hash(coords_transformed)
+    hash3, dists3 = hasher.compute_distance_hash(coords_distinct)
+
+    assert hash1 == hash2
+    assert hash1 != hash3
+    assert np.allclose(dists1, dists2)
+
+    confs = [
+        {"id": 1, "coordinates": coords},
+        {"id": 2, "coordinates": coords_transformed},
+        {"id": 3, "coordinates": coords_distinct}
+    ]
+    unique_confs = hasher.deduplicate_conformers(confs)
+    assert len(unique_confs) == 2
+
+
+def test_lms_conformational_search_and_provenance(tmp_path):
+    lms_mod = load_module_from_path("cochem_geom_lms", repo_root / "03-FIT-AA" / "cochem_geom_lms.py")
+    generator = lms_mod.ConformationalSearchGenerator(seed=12345)
+
+    coords = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 1.4], [0.0, 1.2, 1.8], [0.0, -1.2, 1.8]])
+    elements = ["C", "C", "H", "H"]
+    masses = np.array([12.0, 12.0, 1.0, 1.0])
+
+    conformers = generator.generate_lms_conformers(
+        coords, elements, masses, n_conformers=15, max_energy_window_kcal=5.0, rmsd_threshold_ang=0.5
+    )
+    assert len(conformers) > 0
+    for conf in conformers:
+        assert conf["delta_energy_kcal_mol"] <= 5.0
+        assert "distance_hash" in conf
+
+    prov_path = generator.export_fit_provenance(str(tmp_path))
+    assert os.path.exists(prov_path)
+
+
+def test_multiseed_optimizer_seed_flexibility_and_dynamic_bounds():
+    opt = MultiSeedOptimizer()
+    bounds = ([-1.0, -1.0], [1.0, 1.0])
+    
+    seeds_1a = opt._generate_seeds(bounds, n_seeds=10, seed=42)
+    seeds_1b = opt._generate_seeds(bounds, n_seeds=10, seed=42)
+    seeds_2 = opt._generate_seeds(bounds, n_seeds=10, seed=99)
+
+    assert np.allclose(seeds_1a, seeds_1b)
+    assert not np.allclose(seeds_1a, seeds_2)
+
+    coords_valid = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 1.4]])
+    coords_overlap = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.1]])
+
+    assert not opt._check_divergence(coords_valid, elements=["C", "C"])
+    assert opt._check_divergence(coords_overlap, elements=["C", "C"])
+
+
+def test_milestone_m4_verification(tmp_path):
+    """Explicitly verifies Tasks GEOM-01 through GEOM-05 per Section 4.4, 8B.3, 9A, 9B.3, 12.5."""
+    import json
+
+    # GEOM-01 & GEOM-02 Verification (Updated for MPQC)
+    refiner = MPQCSinglePointEngine(tmp_path)
+    inp1 = refiner.generate_input("test_geom01", ["H", "H"], np.array([[0,0,0],[0,0,0.74]]), inhess="XTB2", pyscf_escalator_optimized=True)
+    c1 = inp1.read_text()
+    assert "CCSD(T)-F12" in c1
+
+    dimer_coords = np.array([
+        [0.0, 0.0, 0.0], [0.0, 0.0, 0.96], [0.0, 0.76, -0.2],
+        [3.0, 0.0, 0.0], [3.0, 0.0, 0.96], [3.0, 0.76, -0.2]
+    ])
+    inp2 = refiner.generate_input(
+        "test_geom02", ["O", "H", "H", "O", "H", "H"], dimer_coords,
+        freeze_mode="frozen-iso", monomer_atom_indices=[[0, 1, 2], [3, 4, 5]], pyscf_escalator_optimized=True
+    )
+    c2 = inp2.read_text()
+    assert "CCSD(T)-F12" in c2
+
+    # GEOM-03 Verification
+    hash_mod = load_module_from_path("cochem_geom_distance_hash", repo_root / "04-ANALYSIS" / "cochem_geom_distance_hash.py")
+    hasher = hash_mod.GeometryDistanceHasher()
+    c_base = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    c_close = c_base + 0.001
+    confs = [{"id": 1, "coordinates": c_base}, {"id": 2, "coordinates": c_close}]
+    dedup = hasher.deduplicate_conformers(confs, rmsd_threshold=0.05, angle_threshold_deg=1.0, bthr=0.001)
+    assert len(dedup) == 1
+
+    # GEOM-04 Verification
+    lms_mod = load_module_from_path("cochem_geom_lms", repo_root / "03-FIT-AA" / "cochem_geom_lms.py")
+    gen = lms_mod.ConformationalSearchGenerator(seed=42)
+    coords = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 1.4], [0.0, 1.2, 1.8], [0.0, -1.2, 1.8]])
+    elements = ["C", "C", "H", "H"]
+    masses = np.array([12.0, 12.0, 1.0, 1.0])
+    H_cart, H_mw = gen._estimate_spring_hessian(coords, masses, elements=elements)
+    assert H_cart.shape == (12, 12)
+    # Check custom user hessian support
+    H_custom = np.eye(12)
+    freqs, evecs, H_used = gen.compute_normal_modes(coords, masses, elements=elements, hessian=H_custom)
+    assert np.allclose(H_used, H_custom)
+
+    lms_confs = gen.generate_lms_conformers(coords, elements, masses, n_conformers=10)
+    assert len(lms_confs) > 0
+    assert "delta_energy_kcal_mol" in lms_confs[0]
+
+    # GEOM-05 Verification
+    prov_file = gen.export_fit_provenance(str(tmp_path))
+    with open(prov_file, "r") as f:
+        pdata = json.load(f)
+    assert pdata["physical_constants"]["HBAR"]["tag"] == "[M]"
+    assert pdata["physical_constants"]["KB"]["tag"] == "[M]"
+    assert pdata["physical_constants"]["HARTREE_TO_KCAL_MOL"]["tag"] == "[D]"
+    assert pdata["structural_parameter_tags"]["re_equilibrium"] == "[D]"
+    assert pdata["sampling_parameters"]["energy_window_kcal_mol"]["tag"] == "[E]"
+
+

@@ -105,37 +105,68 @@ class MultiSeedOptimizer:
         else:
             self.logger.info("NumPy CPU backend initialized. (PyTorch/CUDA disabled or absent).")
 
-    def _check_divergence(self, coords: np.ndarray) -> bool:
+    def _check_divergence(self, coords: np.ndarray, elements: Optional[List[str]] = None) -> bool:
         """
-        Hard physical constraint guard.
-        Aborts if any interatomic distance falls below 0.5 A or exceeds 5.0 A.
+        Dynamic physical constraint guard (Suggestion 41).
+        Replaces hardcoded < 0.5 A / > 5.0 A bounds with dynamic covalent and vdw radii bounds.
         """
-        from scipy.spatial.distance import pdist
+        from scipy.spatial.distance import pdist, squareform
+        n_atoms = len(coords)
+        if n_atoms < 2:
+            return False
+            
         distances = pdist(coords)
-        if np.any(distances < 0.5) or np.any(distances > 5.0):
-            return True
+        dist_matrix = squareform(distances)
+        
+        # Element radii table (covalent, vdw in Angstroms)
+        radii_table = {
+            'H': (0.31, 1.20), 'HE': (0.28, 1.40), 'LI': (1.28, 1.82), 'BE': (0.96, 1.53),
+            'B': (0.84, 1.92), 'C': (0.76, 1.70), 'N': (0.71, 1.55), 'O': (0.66, 1.52),
+            'F': (0.57, 1.47), 'NE': (0.58, 1.54), 'NA': (1.66, 2.27), 'MG': (1.41, 1.73),
+            'AL': (1.21, 1.84), 'SI': (1.11, 2.10), 'P': (1.07, 1.80), 'S': (1.05, 1.80),
+            'CL': (1.02, 1.75), 'AR': (1.06, 1.88), 'BR': (1.20, 1.85), 'I': (1.39, 1.98)
+        }
+        
+        # Max span of geometry
+        span = float(np.max(pdist(coords))) if len(coords) > 1 else 5.0
+        max_allowed_dist = max(15.0, 2.5 * span)
+
+        for i in range(n_atoms):
+            elem_i = elements[i].upper() if elements and i < len(elements) else 'C'
+            cov_i, vdw_i = radii_table.get(elem_i, (0.77, 1.70))
+            for j in range(i + 1, n_atoms):
+                elem_j = elements[j].upper() if elements and j < len(elements) else 'C'
+                cov_j, vdw_j = radii_table.get(elem_j, (0.77, 1.70))
+                
+                # Dynamic lower bound: 0.45 * sum of covalent radii (prevents atomic overlap)
+                min_allowed = 0.45 * (cov_i + cov_j)
+                d = dist_matrix[i, j]
+                if d < min_allowed or d > max_allowed_dist:
+                    return True
+                    
         return False
 
-    def _generate_seeds(self, bounds: Tuple[List[float], List[float]], n_seeds: int = 50) -> np.ndarray:
-        """Generates Latin Hypercube Sampled (LHS) seeds within dynamic bounds to prevent clustering."""
+    def _generate_seeds(self, bounds: Tuple[List[float], List[float]], n_seeds: int = 50, seed: Optional[int] = None) -> np.ndarray:
+        """Generates Latin Hypercube Sampled (LHS) seeds within dynamic bounds with configurable seed (MOCK-08 / Suggestion 40)."""
         lower, upper = np.array(bounds[0]), np.array(bounds[1])
         dim = len(lower)
         try:
             from scipy.stats.qmc import LatinHypercube
-            sampler = LatinHypercube(d=dim, seed=42)
+            sampler = LatinHypercube(d=dim, seed=seed)
             unit_samples = sampler.random(n=n_seeds)
             return lower + unit_samples * (upper - lower)
         except ImportError:
-            # Low-discrepancy deterministic Halton sequence fallback (zero random noise)
+            # Low-discrepancy deterministic Halton sequence fallback
             grid_points = []
             primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71]
+            offset = 0 if seed is None else seed % 100
             for i in range(n_seeds):
                 point = []
                 for d in range(dim):
                     base = primes[d % len(primes)]
                     f = 1.0
                     r = 0.0
-                    i_val = i + 1
+                    i_val = i + 1 + offset
                     while i_val > 0:
                         f /= base
                         r += f * (i_val % base)

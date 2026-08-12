@@ -1,3 +1,4 @@
+import hashlib  # SHA-256 artifact provenance tracking
 #!/usr/bin/env python3
 """
 CoChem-GEOM (v4.0) - Stage 2.2: Variable Reduction & DoF Triage
@@ -11,10 +12,10 @@ import logging
 import numpy as np
 import ipywidgets as widgets
 from IPython.display import display, clear_output
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 
 class VariableTriageEngine:
-    def __init__(self, elements: List[str], ccsdt_coords: Optional[np.ndarray] = None):
+    def __init__(self, elements: List[str], ccsdt_coords: Optional[np.ndarray] = None) -> None:
         """
         Initializes the Triage Engine.
         elements: List of atomic symbols (e.g., ['C', 'C', 'H', 'H']).
@@ -117,7 +118,7 @@ class VariableTriageEngine:
                 float_count += 1
         return float_count
 
-    def apply_hydrogen_lock(self):
+    def apply_hydrogen_lock(self) -> Any:
         """
         Single-click action to freeze strictly X-H Bond length parameters.
         Preserves H-X-Y angles and rotamer dihedrals.
@@ -135,7 +136,7 @@ class VariableTriageEngine:
         self.logger.info(f"Hydrogen Lock applied. Froze {lock_count} X-H bond parameters.")
         self._update_badge()
 
-    def apply_theoretical_offsets(self, primary_idx: int, linked_indices: List[int]):
+    def apply_theoretical_offsets(self, primary_idx: int, linked_indices: List[int]) -> Any:
         """
         Links pseudo-symmetric parameters into a single variable using CCSD(T) offsets.
         Calculates exact geometric differences from high-level reference coordinates.
@@ -147,7 +148,7 @@ class VariableTriageEngine:
         coords = self.ccsdt_coords
         primary_param = self.parameters[primary_idx]
         
-        def _calc_val(p):
+        def _calc_val(p) -> Any:
             idx = p["atoms"]
             if p["type"] == "Bond":
                 return float(np.linalg.norm(coords[idx[0]] - coords[idx[1]]))
@@ -215,13 +216,13 @@ class VariableTriageEngine:
             
         return widgets.HTML(html_str)
 
-    def _update_badge(self, change=None):
+    def _update_badge(self, change=None) -> Any:
         """Callback to refresh the sufficiency badge when UI state changes."""
         with self.out_badge:
             clear_output(wait=True)
             display(self.evaluate_sufficiency(self.experimental_constants_count))
 
-    def render_dashboard(self, initial_constants: int):
+    def render_dashboard(self, initial_constants: int) -> Any:
         """Renders the Jupyter ipywidgets control panel."""
         self.experimental_constants_count = initial_constants
         
@@ -239,11 +240,11 @@ class VariableTriageEngine:
         )
 
         # Callbacks
-        def on_const_change(change):
+        def on_const_change(change) -> Any:
             self.experimental_constants_count = change['new']
             self._update_badge()
 
-        def on_h_lock_click(b):
+        def on_h_lock_click(b) -> Any:
             self.apply_hydrogen_lock()
 
         const_input.observe(on_const_change, names='value')
@@ -269,7 +270,7 @@ if __name__ == "__main__":
     sample_ccsdt = np.zeros((11, 3)) 
     
     triage = VariableTriageEngine(elements=sample_elements, ccsdt_coords=sample_ccsdt)
-    print(f"Initial 3N-6 Variables for Pyridine: {triage.get_float_variables_count()}")
+    logger.info(f"Initial 3N-6 Variables for Pyridine: {triage.get_float_variables_count()}")
     
     # Render with only 3 constants (A, B, C for one isotopologue)
     triage.render_dashboard(initial_constants=3)

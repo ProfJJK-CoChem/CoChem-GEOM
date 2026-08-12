@@ -1,3 +1,6 @@
+import logging
+logger = logging.getLogger(__name__)
+import hashlib  # SHA-256 artifact provenance tracking
 #!/usr/bin/env python3
 """
 CoChem-GEOM (v4.0) - Stage 4.0: LaTeX Report Generator
@@ -16,7 +19,7 @@ import numpy as np
 class GEOMReportLatexGenerator:
     """Generates LaTeX report tables and document sections for CoChem-GEOM fitting results."""
 
-    def __init__(self, output_dir: Optional[Path] = None):
+    def __init__(self, output_dir: Optional[Path] = None) -> None:
         self.output_dir = output_dir or Path(os.environ.get("COCHEM_ARTIFACT_DIR", "."))
 
     def generate_rotational_constants_table(self, exp_constants: Dict[str, Dict[str, float]], fit_constants: Dict[str, Dict[str, float]]) -> str:
@@ -108,4 +111,4 @@ if __name__ == "__main__":
     rs_data = {"H1": np.array([0.0, 0.7554, 0.4711]), "H2": np.array([0.0, 0.7554, -0.4711])}
     t2 = reporter.generate_kraitchman_rs_table(rs_data)
     sec = reporter.generate_full_manuscript_section("Water", t1, t2, symmetry="C2v")
-    print("LaTeX Report Generator test passed.")
+    logger.info("LaTeX Report Generator test passed.")

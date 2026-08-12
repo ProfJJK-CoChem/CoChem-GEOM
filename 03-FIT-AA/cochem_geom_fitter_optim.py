@@ -25,7 +25,7 @@ except ImportError:
 class KraitchmanEngine:
     """Computes exact substitution structures (r_s) via Kraitchman's Equations."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.logger = logging.getLogger("CoChem_GEOM_Kraitchman")
 
     def fit_rs_kraitchman(self, parent_I: np.ndarray, iso_I: np.ndarray, M_parent: float, delta_m: float, return_report: bool = False) -> np.ndarray:
@@ -97,7 +97,7 @@ class KraitchmanEngine:
 class MultiSeedOptimizer:
     """Executes multi-start non-linear parameter fitting with condition fallbacks."""
     
-    def __init__(self, device: str = "cpu"):
+    def __init__(self, device: str = "cpu") -> None:
         self.logger = logging.getLogger("CoChem_GEOM_Optimizer")
         self.device = device if TORCH_AVAILABLE else "cpu"
         if self.device == "cuda" and torch.cuda.is_available():
@@ -208,9 +208,6 @@ class MultiSeedOptimizer:
         return covariance, used_svd, svd_report
 
     def execute_fit(self, 
-                    objective_fn: Callable, 
-                    jacobian_fn: Callable,
-                    bounds: Tuple[List[float], List[float]],
                     experimental_weights: np.ndarray,
                     n_seeds: int = 50) -> Dict:
         """
@@ -274,7 +271,7 @@ if __name__ == "__main__":
     parent = np.array([10.0, 50.0, 60.0]) # Planar
     iso = np.array([10.0, 52.0, 62.0])    # Substituted
     coords = kraitchman.fit_rs_kraitchman(parent, iso, M_parent=50.0, delta_m=1.003)
-    print(f"Test Kraitchman Coordinates |a, b, c|: {coords}")
+    logger.info(f"Test Kraitchman Coordinates |a, b, c|: {coords}")
     
     # 2. Test Optimizer SVD Fallback
     opt = MultiSeedOptimizer()
@@ -283,8 +280,8 @@ if __name__ == "__main__":
     # y = x1 + x2 (Perfectly correlated parameters, infinite condition number)
     test_weights = np.ones(1)
     
-    def test_obj(p): return np.array([p[0] + p[1] - 5.0])
-    def test_jac(p): return np.array([[1.0, 1.0]])
+    def test_obj(p) -> None: return np.array([p[0] + p[1] - 5.0])
+    def test_jac(p) -> None: return np.array([[1.0, 1.0]])
     
     res = opt.execute_fit(
         objective_fn=test_obj,
@@ -294,6 +291,6 @@ if __name__ == "__main__":
         n_seeds=10
     )
     
-    print(f"Test SVD Fallback Converged Params: {res['converged_parameters']}")
+    logger.info(f"Test SVD Fallback Converged Params: {res['converged_parameters']}")
     assert res['svd_fallback_used'] is True, "SVD Fallback failed to trigger on singular Jacobian."
-    print("All mathematical safeguards validated successfully.")
+    logger.info("All mathematical safeguards validated successfully.")

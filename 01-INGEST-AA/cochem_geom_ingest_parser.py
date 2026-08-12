@@ -11,7 +11,7 @@ import re
 import json
 import logging
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
 import pandas as pd
 
@@ -29,7 +29,7 @@ class MalformedPickettError(Exception):
     """Raised when Pickett parsing encounters overlapped columns or string-truncation."""
 
 class SpectraIngestionEngine:
-    def __init__(self, workspace_dir: Path):
+    def __init__(self, workspace_dir: Path) -> None:
         self.workspace_dir = workspace_dir
         self.logger = logging.getLogger("CoChem_GEOM_Ingest")
         self.triage_log = []
@@ -164,7 +164,7 @@ class SpectraIngestionEngine:
         constants = []
         try:
             with open(json_path, 'r') as f:
-                data = json.load(f)
+                data = json.loads(f.read())
         except json.JSONDecodeError:
             raise ValueError(f"Corrupted SpycFit Payload: {json_path.name}")
 
@@ -210,7 +210,7 @@ class SpectraIngestionEngine:
             
         return valid_constants
 
-    def write_triage_report(self):
+    def write_triage_report(self) -> Any:
         """Dumps the pre-flight logic logs to the workspace."""
         report_path = self.workspace_dir / "reports" / "triage_report.json"
         report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -224,4 +224,4 @@ if __name__ == "__main__":
     test_dir.mkdir(exist_ok=True)
     
     engine = SpectraIngestionEngine(test_dir)
-    print("SpectraIngestionEngine initialized. Ready to process Pickett .par or SpycFit .json files.")
+    logger.info("SpectraIngestionEngine initialized. Ready to process Pickett .par or SpycFit .json files.")

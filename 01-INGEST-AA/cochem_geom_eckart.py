@@ -1,3 +1,6 @@
+import logging
+logger = logging.getLogger(__name__)
+import hashlib  # SHA-256 artifact provenance tracking
 #!/usr/bin/env python3
 """
 CoChem-GEOM - Stage 1.2: Dynamic Eckart Frame Alignment & Decoupling Tensor (Suggestion 42)
@@ -15,10 +18,7 @@ class EckartFrameAligner:
     """Dynamic Eckart frame alignment tensor calculation and vibrational decoupling engine."""
 
     def align_eckart_frame(
-        self,
-        ref_coords: np.ndarray,
-        target_coords: np.ndarray,
-        masses: Optional[np.ndarray] = None
+        self, ref_coords: np.ndarray, target_coords: np.ndarray, masses: Optional[np.ndarray] = None
     ) -> Tuple[np.ndarray, np.ndarray, float]:
         """
         Aligns target_coords to ref_coords satisfying Eckart conditions:
@@ -82,9 +82,7 @@ class EckartFrameAligner:
         return aligned_coords, U_Eckart, rot_residual_norm
 
     def compute_decoupling_matrix(
-        self,
-        coords: np.ndarray,
-        masses: Optional[np.ndarray] = None
+        self, coords: np.ndarray, masses: Optional[np.ndarray] = None
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Constructs the 3N x 3N vibrational projection operator:

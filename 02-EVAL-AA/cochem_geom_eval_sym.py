@@ -9,7 +9,7 @@ to warn against thermal zero-point out-of-plane geometric distortions.
 
 import logging
 import numpy as np
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 import ipywidgets as widgets
 from IPython.display import display, HTML
 try:
@@ -20,7 +20,7 @@ except ImportError:
     MOLSYM_AVAILABLE = False
 
 class SymmetryControllerUI:
-    def __init__(self):
+    def __init__(self) -> None:
         self.logger = logging.getLogger("CoChem_GEOM_Symmetry")
         self.symmetry_override_dict = {}
 
@@ -75,7 +75,7 @@ class SymmetryControllerUI:
             self.logger.error(f"[{species_id}] molsym detection failed: {e}. Defaulting to C1.")
             return "C1"
 
-    def render_hitl_dashboard(self, geometry_payloads: dict):
+    def render_hitl_dashboard(self, geometry_payloads: dict) -> Any:
         """
         Renders an interactive UI for all isomers/isotopologues.
         geometry_payloads: Dict containing coords, elements, and moments for each species.
@@ -106,7 +106,7 @@ class SymmetryControllerUI:
             )
             
             # Define callback for manual override
-            def on_change(change, s_id=species_id):
+            def on_change(change, s_id=species_id) -> Any:
                 if change['type'] == 'value':
                     self.logger.info(f"[{s_id}] Symmetry overridden by user: {change['old']} -> {change['new']}")
                     self.symmetry_override_dict[s_id] = change['new']
@@ -150,4 +150,4 @@ if __name__ == "__main__":
     
     # Render (will print HTML repr in terminal if ipywidgets is headless)
     sym_engine.render_hitl_dashboard(sample_payload)
-    print(f"Final Captured State: {sym_engine.symmetry_override_dict}")
+    logger.info(f"Final Captured State: {sym_engine.symmetry_override_dict}")

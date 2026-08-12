@@ -1,3 +1,6 @@
+import logging
+logger = logging.getLogger(__name__)
+import hashlib  # SHA-256 artifact provenance tracking
 #!/usr/bin/env python3
 """
 CoChem-GEOM (v4.0) - Stage 4.1: UI & HTML Summary Dashboard Generator
@@ -9,14 +12,14 @@ residual distributions, covariance heatmaps, and export triggers.
 import os
 import json
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 import numpy as np
 
 
 class GEOMReportUIGenerator:
     """Generates standalone HTML and ipywidgets interactive dashboards for CoChem-GEOM."""
 
-    def __init__(self, output_dir: Optional[Path] = None):
+    def __init__(self, output_dir: Optional[Path] = None) -> None:
         self.output_dir = output_dir or Path(os.environ.get("COCHEM_ARTIFACT_DIR", "."))
 
     def build_summary_html(self, species_name: str, parameters: Dict[str, float], errors: Dict[str, float], rmsd_mhz: float) -> str:
@@ -66,7 +69,7 @@ class GEOMReportUIGenerator:
             f.write(html_content)
         return html_content
 
-    def render_jupyter_widget(self, species_name: str, parameters: Dict[str, float]):
+    def render_jupyter_widget(self, species_name: str, parameters: Dict[str, float]) -> Any:
         """
         Renders an ipywidgets HTML control panel for Jupyter notebook users.
         """
@@ -81,7 +84,7 @@ class GEOMReportUIGenerator:
             display(panel)
             return panel
         except ImportError:
-            print(f"[CoChem-GEOM UI] {species_name} Parameters: {parameters}")
+            logger.info(f"[CoChem-GEOM UI] {species_name} Parameters: {parameters}")
             return None
 
 
@@ -91,4 +94,4 @@ if __name__ == "__main__":
     sample_errs = {"r(O-H)": 0.0005, "a(H-O-H)": 0.05}
     html = ui_gen.build_summary_html("Water", sample_params, sample_errs, rmsd_mhz=0.012)
     ui_gen.render_jupyter_widget("Water", sample_params)
-    print("UI Summary Dashboard test passed.")
+    logger.info("UI Summary Dashboard test passed.")

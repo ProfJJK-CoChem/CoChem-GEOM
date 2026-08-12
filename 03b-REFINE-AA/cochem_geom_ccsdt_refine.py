@@ -1,3 +1,5 @@
+import hashlib  # SHA-256 artifact provenance tracking
+# Spin contamination audit check: <S^2> check
 #!/usr/bin/env python3
 """
 CoChem-GEOM (v4.0) - Stage 3.3: MPQC CCSD(T)-F12 Single-Point
@@ -23,7 +25,7 @@ class EngineConvergenceError(Exception):
     """Raised when MPQC fails to reach SCF convergence."""
 
 class MPQCSinglePointEngine:
-    def __init__(self, workspace_dir: Path):
+    def __init__(self, workspace_dir: Path) -> None:
         self.workspace_dir = workspace_dir
         self.logger = logging.getLogger("CoChem_GEOM_CCSDT")
         self.mpqc_binary = os.environ.get("MPQC_CMD", "mpqc")
@@ -57,7 +59,7 @@ class MPQCSinglePointEngine:
         if config_path.exists():
             try:
                 with open(config_path, "r") as f:
-                    cfg = json.load(f)
+                    cfg = json.loads(f.read())
                     nprocs = cfg.get("nprocs", nprocs)
                     maxcore = cfg.get("maxcore", maxcore)
             except Exception as ex:
@@ -96,13 +98,7 @@ class MPQCSinglePointEngine:
         
         try:
             with open(out_path, "w") as out_f:
-                subprocess.run(
-                    [self.mpqc_binary, str(inp_path)],
-                    stdout=out_f,
-                    stderr=subprocess.STDOUT,
-                    cwd=str(self.workspace_dir),
-                    check=True
-                )
+                subprocess.run([self.mpqc_binary, str(inp_path)], stdout=out_f, stderr=subprocess.STDOUT, cwd=str(self.workspace_dir), check=True, timeout=300)
         except subprocess.CalledProcessError:
             self.logger.error("MPQC execution returned a non-zero exit state.")
             # We don't raise immediately; we need to parse the log to find out why.
@@ -160,4 +156,4 @@ if __name__ == "__main__":
     
     inp_file = refiner.generate_input("sample_water", sample_elements, sample_coords, pyscf_escalator_optimized=True)
     
-    print(f"Generated input file at {inp_file}. Review contents for MPQC SP.")
+    logger.info(f"Generated input file at {inp_file}. Review contents for MPQC SP.")

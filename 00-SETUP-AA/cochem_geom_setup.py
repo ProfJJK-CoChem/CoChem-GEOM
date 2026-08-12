@@ -13,11 +13,12 @@ import logging
 import uuid
 import argparse
 from pathlib import Path
+from typing import Any
 import h5py
 from tqdm import tqdm
 
 class GeomEnvironmentOrchestrator:
-    def __init__(self, workspace_name: str, config_path: str = None, headless: bool = False):
+    def __init__(self, workspace_name: str, config_path: str = None, headless: bool = False) -> None:
         self.workspace_name = workspace_name
         self.headless = headless
         self.home_dir = Path.home()
@@ -33,7 +34,7 @@ class GeomEnvironmentOrchestrator:
         self.hardware_profile = {}
         self.logger = self._setup_logger()
 
-    def _setup_logger(self):
+    def _setup_logger(self) -> Any:
         """Initializes terminal logging, deferring to tqdm if headless."""
         logger = logging.getLogger("CoChem_GEOM_Setup")
         logger.setLevel(logging.INFO)
@@ -43,7 +44,7 @@ class GeomEnvironmentOrchestrator:
             logger.handlers.clear()
 
         class TqdmLoggingHandler(logging.Handler):
-            def emit(self, record):
+            def emit(self, record) -> Any:
                 try:
                     msg = self.format(record)
                     tqdm.write(msg)
@@ -61,7 +62,7 @@ class GeomEnvironmentOrchestrator:
         logger.addHandler(handler)
         return logger
 
-    def _load_system_config(self):
+    def _load_system_config(self) -> Any:
         """Polls the authoritative CoChem registry for hardware limits."""
         if not self.config_path.exists():
             self.logger.warning(f"Registry not found at {self.config_path}. Using default safety limits.")
@@ -74,7 +75,7 @@ class GeomEnvironmentOrchestrator:
 
         try:
             with open(self.config_path, 'r') as f:
-                config = json.load(f)
+                config = json.loads(f.read())
                 self.hardware_profile = config.get("hardware", {})
                 self.logger.info(f"Loaded hardware profile: {self.hardware_profile.get('cpu_cores', 'Unknown')} Cores")
         except json.JSONDecodeError:
@@ -110,7 +111,7 @@ class GeomEnvironmentOrchestrator:
             
         return h5_path
 
-    def _initialize_provenance(self):
+    def _initialize_provenance(self) -> Any:
         """Seeds the cryptographic ledger and the auto-citation generator."""
         prov_path = self.workspace_dir / "geom_provenance.json"
         bib_path = self.workspace_dir / "references.bib"
@@ -137,7 +138,7 @@ class GeomEnvironmentOrchestrator:
             
         self.logger.info("Cryptographic provenance and bibliography ledgers established.")
 
-    def setup_environment(self):
+    def setup_environment(self) -> Any:
         """Master execution loop for Stage 0.0."""
         self.logger.info(f"Initializing CoChem-GEOM Workspace: {self.workspace_name}")
         

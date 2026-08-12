@@ -20,7 +20,7 @@ except ImportError:
     MENDELEEV_AVAILABLE = False
 
 class CoordinateStandardizer:
-    def __init__(self):
+    def __init__(self) -> None:
         self.logger = logging.getLogger("CoChem_GEOM_Math")
         self._fallback_masses = {
             "H": 1.007825, "D": 2.014102, "He": 4.002602, "Li": 6.941,
@@ -229,4 +229,4 @@ if __name__ == "__main__":
     # Validation Check 1: Exact mass of Carbon-13
     mass_13c = math_engine.fetch_exact_mass("C", 13)
     assert abs(mass_13c - 13.00335) < 1e-4, f"Mass mismatch: {mass_13c}"
-    print(f"Validation Passed: 13C exact mass = {mass_13c} Da")
+    logger.info(f"Validation Passed: 13C exact mass = {mass_13c} Da")

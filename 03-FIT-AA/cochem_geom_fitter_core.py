@@ -19,7 +19,7 @@ import logging
 from typing import List, Dict, Tuple
 
 class DynamicBoundsTuner:
-    def __init__(self):
+    def __init__(self) -> None:
         self.logger = logging.getLogger("CoChem_GEOM_Bounds")
         self._radii_cache = {
             "H": 0.31, "He": 0.28, "Li": 1.28, "Be": 0.96, "B": 0.84, "C": 0.76,
@@ -78,7 +78,7 @@ class DynamicBoundsTuner:
 
 
 class ZMatrixEngine:
-    def __init__(self):
+    def __init__(self) -> None:
         self.logger = logging.getLogger("CoChem_GEOM_ZMatrix")
 
     def calculate_internal_coordinates(self, coords: np.ndarray, params: List[Dict]) -> np.ndarray:
@@ -227,7 +227,7 @@ if __name__ == "__main__":
     
     tuner = DynamicBoundsTuner()
     c_c_bounds = tuner.get_bond_bounds("C", "C")
-    print(f"Calculated C-C Dynamic Bounds: {c_c_bounds[0]:.2f} to {c_c_bounds[1]:.2f} Å")
+    logger.info(f"Calculated C-C Dynamic Bounds: {c_c_bounds[0]:.2f} to {c_c_bounds[1]:.2f} Å")
     
     engine = ZMatrixEngine()
     # Test rigid body removal (Kabsch/Eckart)
@@ -237,4 +237,4 @@ if __name__ == "__main__":
     new_coords = np.dot(ref_coords, rot) + np.array([5.0, 5.0, 5.0])
     
     aligned = engine._apply_eckart_quaternion(ref_coords, new_coords)
-    print(f"Alignment Error: {np.linalg.norm(aligned - ref_coords):.2e}")
+    logger.error(f"Alignment Error: {np.linalg.norm(aligned - ref_coords):.2e}")

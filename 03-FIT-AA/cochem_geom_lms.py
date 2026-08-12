@@ -1,3 +1,5 @@
+import logging
+logger = logging.getLogger(__name__)
 #!/usr/bin/env python3
 """
 CoChem-GEOM - Stage 3.4: Low-Mode Sampling (LMS) Conformational Search Generator (Suggestions 43 & 45)
@@ -37,17 +39,14 @@ COVALENT_RADII_ANG = {
 class ConformationalSearchGenerator:
     """Low-Mode Sampling (LMS) conformer generator with heavy-atom RMSD clustering and energy filtering."""
 
-    def __init__(self, seed: Optional[int] = None):
+    def __init__(self, seed: Optional[int] = None) -> None:
         self.seed = seed
         self.rng = np.random.default_rng(seed)
         self.eckart_aligner = EckartFrameAligner()
         self.hasher = GeometryDistanceHasher()
 
     def _estimate_spring_hessian(
-        self,
-        coords: np.ndarray,
-        masses: np.ndarray,
-        elements: Optional[List[str]] = None,
+        self, coords: np.ndarray, masses: np.ndarray, elements: Optional[List[str]] = None,
         hessian: Optional[np.ndarray] = None
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -109,10 +108,7 @@ class ConformationalSearchGenerator:
         return H, H_mw
 
     def compute_normal_modes(
-        self,
-        coords: np.ndarray,
-        masses: np.ndarray,
-        elements: Optional[List[str]] = None,
+        self, coords: np.ndarray, masses: np.ndarray, elements: Optional[List[str]] = None,
         hessian: Optional[np.ndarray] = None
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
@@ -139,10 +135,7 @@ class ConformationalSearchGenerator:
         return freqs_cm1, evecs, H
 
     def compute_heavy_atom_rmsd(
-        self,
-        coords1: np.ndarray,
-        coords2: np.ndarray,
-        elements: List[str]
+        self, coords1: np.ndarray, coords2: np.ndarray, elements: List[str]
     ) -> float:
         """Computes heavy-atom (Z > 1) Kabsch RMSD between two geometries."""
         heavy_idx = [i for i, el in enumerate(elements) if el.upper() not in ['H', 'D', '1H', '2H']]
@@ -159,22 +152,17 @@ class ConformationalSearchGenerator:
         # Kabsch alignment SVD
         H = c1.T @ c2
         V, S, Wt = np.linalg.svd(H)
-        d = np.linalg.det(V @ Wt)
-        U = V @ np.diag([1.0, 1.0, d]) @ Wt
-        c2_aligned = c2 @ U
+        d = np.linalg.det(Wt.T @ V.T)
+        R_opt = Wt.T @ np.diag([1.0, 1.0, d]) @ V.T
+        c2_aligned = c2 @ R_opt
 
         rmsd = float(np.sqrt(np.mean(np.sum((c1 - c2_aligned)**2, axis=-1))))
         return rmsd
 
     def generate_lms_conformers(
-        self,
-        ref_coords: np.ndarray,
-        elements: List[str],
-        masses: Optional[np.ndarray] = None,
-        n_conformers: int = 20,
-        max_energy_window_kcal: float = 5.0,
-        rmsd_threshold_ang: float = 0.5,
-        hessian: Optional[np.ndarray] = None
+        self, ref_coords: np.ndarray, elements: List[str], masses: Optional[np.ndarray] = None,
+        n_conformers: int = 20, max_energy_window_kcal: float = 5.0,
+        rmsd_threshold_ang: float = 0.5, hessian: Optional[np.ndarray] = None
     ) -> List[Dict]:
         """
         Generates Low-Mode Sampling trial conformers with heavy-atom RMSD clustering and energy window filtering.

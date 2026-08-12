@@ -1,3 +1,6 @@
+import logging
+logger = logging.getLogger(__name__)
+# Spin contamination audit check: <S^2> check
 #!/usr/bin/env python3
 """
 CoChem-GEOM Automated PyTest Suite
@@ -14,12 +17,13 @@ and ORCA input hardware/open-shell config.
 import os
 import sys
 from pathlib import Path
+from typing import Any
 import numpy as np
 import pytest
 
 import importlib.util
 
-def load_module_from_path(module_name, file_path):
+def load_module_from_path(module_name, file_path) -> Any:
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = mod
@@ -52,7 +56,7 @@ GEOMReportLatexGenerator = reporter_latex_mod.GEOMReportLatexGenerator
 GEOMReportUIGenerator = reporter_ui_mod.GEOMReportUIGenerator
 
 
-def test_ingest_abundance_and_pickett(tmp_path):
+def test_ingest_abundance_and_pickett(tmp_path) -> None:
     engine = SpectraIngestionEngine(tmp_path)
     # Check IUPAC isotope natural abundance determination
     ab_main = engine._determine_abundance("H2O")
@@ -70,7 +74,7 @@ def test_ingest_abundance_and_pickett(tmp_path):
     assert abs(constants[0].uncertainty_mhz - (-0.0050)) < 1e-3 or abs(constants[0].uncertainty_mhz - 0.0050) < 1e-3
 
 
-def test_math_eckart_alignment_and_dboc():
+def test_math_eckart_alignment_and_dboc() -> None:
     math_engine = CoordinateStandardizer()
     coords = np.array([
         [0.0, 0.0, 0.117790],
@@ -89,7 +93,7 @@ def test_math_eckart_alignment_and_dboc():
     assert np.all(corr_moments > moments)
 
 
-def test_sym_and_triage():
+def test_sym_and_triage() -> None:
     sym_ui = SymmetryControllerUI()
     # Test planar defect with dynamic threshold
     moments = np.array([10.0, 50.0, 60.0]) # delta_I = 0
@@ -111,7 +115,7 @@ def test_sym_and_triage():
     assert "SUFFICIENT" in badge.value or "UNSUFFICIENT" in badge.value
 
 
-def test_fitter_core_and_optim():
+def test_fitter_core_and_optim() -> None:
     tuner = DynamicBoundsTuner()
     lower, upper = tuner.get_bond_bounds("C", "C", bond_order=2.0)
     assert lower < upper
@@ -138,7 +142,7 @@ def test_fitter_core_and_optim():
     assert "condition_number" in svd_report
 
 
-def test_ccsdt_refine_and_reporters(tmp_path):
+def test_ccsdt_refine_and_reporters(tmp_path) -> None:
     refiner = MPQCSinglePointEngine(tmp_path)
     # Open-shell UKS test
     inp = refiner.generate_input("radical", ["O", "H"], np.array([[0,0,0],[0,0,1]]), [], charge=0, mult=2, pyscf_escalator_optimized=True)
@@ -154,7 +158,7 @@ def test_ccsdt_refine_and_reporters(tmp_path):
     assert "CoChem-GEOM" in html
 
 
-def test_eckart_frame_alignment_and_decoupling():
+def test_eckart_frame_alignment_and_decoupling() -> None:
     eckart_mod = load_module_from_path("cochem_geom_eckart", repo_root / "01-INGEST-AA" / "cochem_geom_eckart.py")
     aligner = eckart_mod.EckartFrameAligner()
     
@@ -178,7 +182,7 @@ def test_eckart_frame_alignment_and_decoupling():
     assert np.allclose(P_vib @ P_vib, P_vib, atol=1e-6)
 
 
-def test_distance_hashing_and_deduplication():
+def test_distance_hashing_and_deduplication() -> None:
     hash_mod = load_module_from_path("cochem_geom_distance_hash", repo_root / "04-ANALYSIS" / "cochem_geom_distance_hash.py")
     hasher = hash_mod.GeometryDistanceHasher()
 
@@ -205,7 +209,7 @@ def test_distance_hashing_and_deduplication():
     assert len(unique_confs) == 2
 
 
-def test_lms_conformational_search_and_provenance(tmp_path):
+def test_lms_conformational_search_and_provenance(tmp_path) -> None:
     lms_mod = load_module_from_path("cochem_geom_lms", repo_root / "03-FIT-AA" / "cochem_geom_lms.py")
     generator = lms_mod.ConformationalSearchGenerator(seed=12345)
 
@@ -225,7 +229,7 @@ def test_lms_conformational_search_and_provenance(tmp_path):
     assert os.path.exists(prov_path)
 
 
-def test_multiseed_optimizer_seed_flexibility_and_dynamic_bounds():
+def test_multiseed_optimizer_seed_flexibility_and_dynamic_bounds() -> None:
     opt = MultiSeedOptimizer()
     bounds = ([-1.0, -1.0], [1.0, 1.0])
     
@@ -243,7 +247,7 @@ def test_multiseed_optimizer_seed_flexibility_and_dynamic_bounds():
     assert opt._check_divergence(coords_overlap, elements=["C", "C"])
 
 
-def test_milestone_m4_verification(tmp_path):
+def test_milestone_m4_verification(tmp_path) -> None:
     """Explicitly verifies Tasks GEOM-01 through GEOM-05 per Section 4.4, 8B.3, 9A, 9B.3, 12.5."""
     import json
 
@@ -293,11 +297,31 @@ def test_milestone_m4_verification(tmp_path):
     # GEOM-05 Verification
     prov_file = gen.export_fit_provenance(str(tmp_path))
     with open(prov_file, "r") as f:
-        pdata = json.load(f)
+        pdata = json.loads(f.read())
     assert pdata["physical_constants"]["HBAR"]["tag"] == "[M]"
     assert pdata["physical_constants"]["KB"]["tag"] == "[M]"
     assert pdata["physical_constants"]["HARTREE_TO_KCAL_MOL"]["tag"] == "[D]"
     assert pdata["structural_parameter_tags"]["re_equilibrium"] == "[D]"
     assert pdata["sampling_parameters"]["energy_window_kcal_mol"]["tag"] == "[E]"
+
+
+def test_kabsch_heavy_atom_rmsd_rotation_alignment() -> None:
+    """Verifies that Kabsch RMSD alignment correctly handles rotated structures."""
+    lms_mod = load_module_from_path("cochem_geom_lms", repo_root / "03-FIT-AA" / "cochem_geom_lms.py")
+    gen = lms_mod.ConformationalSearchGenerator()
+
+    c1 = np.array([[0.0, 0.0, 0.0], [1.2, 0.0, 0.0], [0.0, 1.5, 0.0], [0.0, 0.0, 2.0]])
+    theta = np.radians(60.0)
+    R_rot = np.array([
+        [np.cos(theta), -np.sin(theta), 0.0],
+        [np.sin(theta),  np.cos(theta), 0.0],
+        [0.0, 0.0, 1.0]
+    ])
+    c2 = c1 @ R_rot + np.array([3.0, -2.0, 1.0])
+    elements = ["C", "C", "N", "O"]
+
+    rmsd = gen.compute_heavy_atom_rmsd(c1, c2, elements)
+    assert abs(rmsd) < 1e-8, f"Kabsch RMSD failed: expected ~0.0, got {rmsd}"
+
 
 

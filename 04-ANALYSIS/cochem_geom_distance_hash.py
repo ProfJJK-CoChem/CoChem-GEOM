@@ -1,3 +1,5 @@
+import logging
+logger = logging.getLogger(__name__)
 #!/usr/bin/env python3
 """
 CoChem-GEOM - Stage 4.0: 1D Interatomic Distance Matrix Hashing & Conformer Deduplication (Suggestion 44)
@@ -15,9 +17,7 @@ class GeometryDistanceHasher:
     """Rotationally and translationally invariant interatomic distance matrix hasher."""
 
     def compute_distance_hash(
-        self,
-        coords: np.ndarray,
-        precision_digits: int = 3
+        self, coords: np.ndarray, precision_digits: int = 3
     ) -> Tuple[str, np.ndarray]:
         """
         Computes SHA-256 hash of 1D sorted interatomic distance matrix.
@@ -107,12 +107,9 @@ class GeometryDistanceHasher:
         return B
 
     def deduplicate_conformers(
-        self,
-        conformer_list: List[Dict[str, Any]],
-        rmsd_threshold: float = 0.05,
-        angle_threshold_deg: float = 1.0,
-        bthr: float = 0.001
-    ) -> List[Dict[str, Any]]:
+        self, conformers: List[Dict], rmsd_threshold: float = 0.05,
+        angle_threshold_deg: float = 1.0, bthr: float = 0.001
+    ) -> List[Dict]:
         """
         Deduplicates a list of conformer dictionaries using CREGEN / GOAT two-stage limits (§9B.3):
         - SHA-256 distance matrix hashing
@@ -135,7 +132,7 @@ class GeometryDistanceHasher:
         seen_angle_vectors = []
         seen_rot_constants = []
 
-        for conf in conformer_list:
+        for conf in conformers:
             coords = conf.get("coordinates")
             if coords is None:
                 continue

@@ -134,6 +134,28 @@ class ConformationalSearchGenerator:
         freqs_cm1 = np.sign(evals) * np.sqrt(np.abs(evals)) * 219474.63
         return freqs_cm1, evecs, H
 
+    def recycle_force_field(self, parent_cartesian_hessian: np.ndarray, iso_masses: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Isotopologue Force-Field Recycling (mass-weighting parent Cartesian force constants).
+        Takes the unweighted Cartesian Hessian (3N x 3N) from the parent species and mass-weights
+        it using the substituted isotopologue masses.
+        Returns: (H_mw_iso, H_mw_parent) or just (freqs, L) for the isotopologue.
+        Actually, we'll return the mass-weighted Hessian for the isotopologue.
+        """
+        n_atoms = len(iso_masses)
+        n_dof = 3 * n_atoms
+        if parent_cartesian_hessian.shape != (n_dof, n_dof):
+            raise ValueError(f"Hessian shape {parent_cartesian_hessian.shape} mismatch with 3N x 3N = ({n_dof}, {n_dof})")
+            
+        sqrt_m = np.sqrt(iso_masses)
+        H_mw_iso = np.zeros((n_dof, n_dof))
+        for i in range(n_atoms):
+            for j in range(n_atoms):
+                denom = sqrt_m[i] * sqrt_m[j]
+                H_mw_iso[3*i:3*i+3, 3*j:3*j+3] = parent_cartesian_hessian[3*i:3*i+3, 3*j:3*j+3] / (denom if denom > 1e-6 else 1.0)
+                
+        return H_mw_iso, parent_cartesian_hessian
+
     def compute_heavy_atom_rmsd(
         self, coords1: np.ndarray, coords2: np.ndarray, elements: List[str]
     ) -> float:

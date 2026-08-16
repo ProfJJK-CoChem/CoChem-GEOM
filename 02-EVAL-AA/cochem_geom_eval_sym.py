@@ -37,6 +37,10 @@ class SymmetryControllerUI:
         # Dynamically scale lower bound threshold for large polycyclics / PAHs
         lower_threshold = -max(1.5, 0.015 * total_I)
         
+        if delta_I > 1e-4:
+             self.logger.error(f"Strict Sign Check Failed: Classical inertial defect cannot be positive. ΔI = {delta_I:.3f}")
+             raise ValueError(f"Physically impossible classical inertial defect (ΔI = {delta_I:.3f} > 0). Sign must be right.")
+             
         if abs(delta_I) < 0.05:
             return widgets.HTML("<b style='color:green;'>[Planar]</b> Inertial Defect (ΔI) ≈ 0.")
         elif lower_threshold <= delta_I < -0.05:
@@ -45,7 +49,7 @@ class SymmetryControllerUI:
                   f"Consider enforcing planarity constraints."
             self.logger.warning(f"Thermal Defect Detected: {delta_I:.3f}")
             return widgets.HTML(msg)
-        elif delta_I < lower_threshold or delta_I > 0.05:
+        elif delta_I < lower_threshold:
              return widgets.HTML(f"<b style='color:blue;'>[Non-Planar]</b> Inertial Defect (ΔI = {delta_I:.3f} amu·Å²).")
         return None
 

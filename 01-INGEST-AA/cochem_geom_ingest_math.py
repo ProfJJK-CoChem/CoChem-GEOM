@@ -106,6 +106,24 @@ class CoordinateStandardizer:
         
         return aligned_coords, principal_moments, rotation_matrix
 
+    def project_to_pas(self, dipole: np.ndarray, quadrupole: Optional[np.ndarray], rotation_matrix: np.ndarray) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+        """
+        Projects Cartesian dipole vectors and quadrupole tensors into the Principal Axis System (PAS).
+        dipole: (3,) Cartesian dipole moment.
+        quadrupole: (3, 3) Cartesian quadrupole tensor (optional).
+        rotation_matrix: (3, 3) matrix from align_to_principal_axes.
+        Returns: (PAS_dipole, PAS_quadrupole)
+        """
+        # Dipole transforms as a vector: mu_PAS = R^T * mu_Cart
+        pas_dipole = np.dot(rotation_matrix.T, dipole)
+        
+        pas_quadrupole = None
+        if quadrupole is not None:
+            # Quadrupole transforms as a rank-2 tensor: Q_PAS = R^T * Q_Cart * R
+            pas_quadrupole = np.dot(rotation_matrix.T, np.dot(quadrupole, rotation_matrix))
+            
+        return pas_dipole, pas_quadrupole
+
     def detect_axis_reorientation(self, r_ref: np.ndarray, r_iso: np.ndarray) -> Dict[str, bool]:
         """
         Checks if an isotopic substitution caused a swap in the a, b, c principal axes.

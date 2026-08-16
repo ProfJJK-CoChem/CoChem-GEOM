@@ -17,6 +17,8 @@ import subprocess
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 import numpy as np
+import psutil
+import atexit
 
 class MultireferenceInstabilityError(Exception):
     """Raised when T1 > 0.02 or D1 > 0.05, indicating wavefunction failure."""
@@ -96,12 +98,33 @@ class MPQCSinglePointEngine:
         out_path = inp_path.with_suffix(".out")
         self.logger.info(f"Dispatching {inp_path.name} to MPQC...")
         
+        proc = None
+        def kill_proc():
+            if proc is not None and proc.poll() is None:
+                try:
+                    parent = psutil.Process(proc.pid)
+                    for child in parent.children(recursive=True):
+                        child.kill()
+                    parent.kill()
+                except psutil.NoSuchProcess:
+                    raise NotImplementedError("Implementation pending")
+        atexit.register(kill_proc)
+        
         try:
             with open(out_path, "w") as out_f:
-                subprocess.run([self.mpqc_binary, str(inp_path)], stdout=out_f, stderr=subprocess.STDOUT, cwd=str(self.workspace_dir), check=True, timeout=300)
+                proc = subprocess.Popen([self.mpqc_binary, str(inp_path)], stdout=out_f, stderr=subprocess.STDOUT, cwd=str(self.workspace_dir))
+                proc.wait(timeout=300)
+                if proc.returncode != 0:
+                    raise subprocess.CalledProcessError(proc.returncode, self.mpqc_binary)
+        except subprocess.TimeoutExpired:
+            kill_proc()
+            self.logger.error("MPQC execution timed out.")
+            raise EngineConvergenceError(f"SP timed out after 300s. Check {out_path.name}.")
         except subprocess.CalledProcessError:
             self.logger.error("MPQC execution returned a non-zero exit state.")
             # We don't raise immediately; we need to parse the log to find out why.
+        finally:
+            atexit.unregister(kill_proc)
 
         # Audit the log
         termination_found = False
@@ -156,4 +179,9 @@ if __name__ == "__main__":
     
     inp_file = refiner.generate_input("sample_water", sample_elements, sample_coords, pyscf_escalator_optimized=True)
     
-    logger.info(f"Generated input file at {inp_file}. Review contents for MPQC SP.")
+    logger.info(f"Generated input file at {inp_file}. Executing MPQC SP natively...")
+    try:
+        diagnostics = refiner.dispatch_and_validate(inp_file)
+        logger.info(f"Physical execution completed. Diagnostics: {diagnostics}")
+    except Exception as e:
+        logger.error(f"Physical execution failed: {e}")

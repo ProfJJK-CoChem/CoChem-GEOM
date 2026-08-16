@@ -12,11 +12,10 @@ import json
 import logging
 from pathlib import Path
 from typing import List, Dict, Optional, Any
-from dataclasses import dataclass
+from pydantic import BaseModel, Field
 import pandas as pd
 
-@dataclass
-class ExperimentalConstant:
+class ExperimentalConstant(BaseModel):
     species_id: str
     constant_type: str
     value_mhz: float

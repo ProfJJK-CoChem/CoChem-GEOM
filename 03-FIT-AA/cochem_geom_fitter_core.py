@@ -16,7 +16,6 @@ except ImportError:
     mendeleev = None
     MENDELEEV_AVAILABLE = False
 import logging
-from typing import List, Dict, Tuple
 
 class DynamicBoundsTuner:
     def __init__(self) -> None:
@@ -30,6 +29,7 @@ class DynamicBoundsTuner:
 
     def _get_covalent_radius(self, symbol: str) -> float:
         """Retrieves and caches covalent radii in Ångströms."""
+        symbol = symbol.capitalize()
         if symbol not in self._radii_cache:
             try:
                 if MENDELEEV_AVAILABLE:
@@ -42,7 +42,7 @@ class DynamicBoundsTuner:
             self._radii_cache[symbol] = 1.0
         return self._radii_cache[symbol]
 
-    def get_bond_bounds(self, atom_A: str, atom_B: str, bond_order: float = 1.0) -> Tuple[float, float]:
+    def get_bond_bounds(self, atom_A: str, atom_B: str, bond_order: float = 1.0) -> tuple[float, float]:
         """
         Calculates dynamic bounds for a bond length, incorporating bond order.
         Returns: (lower_bound_A, upper_bound_A)
@@ -67,12 +67,12 @@ class DynamicBoundsTuner:
         
         return float(lower), float(upper)
 
-    def get_angle_bounds(self) -> Tuple[float, float]:
+    def get_angle_bounds(self) -> tuple[float, float]:
         """Returns standard physical boundaries for angles (in radians)."""
         # 10 degrees to 178 degrees to avoid linear singularities
         return np.radians(10.0), np.radians(178.0)
 
-    def get_dihedral_bounds(self) -> Tuple[float, float]:
+    def get_dihedral_bounds(self) -> tuple[float, float]:
         """Returns bounds for dihedral angles (in radians)."""
         return -np.pi, np.pi
 
@@ -81,7 +81,7 @@ class ZMatrixEngine:
     def __init__(self) -> None:
         self.logger = logging.getLogger("CoChem_GEOM_ZMatrix")
 
-    def calculate_internal_coordinates(self, coords: np.ndarray, params: List[Dict]) -> np.ndarray:
+    def calculate_internal_coordinates(self, coords: np.ndarray, params: list[dict]) -> np.ndarray:
         """
         Maps a given 3N Cartesian array to the target internal coordinates.
         params: List of dictionaries defining the required internal coordinates.
@@ -90,10 +90,11 @@ class ZMatrixEngine:
         internals = []
         for p in params:
             idx = p["atoms"]
-            if p["type"] == "Bond":
+            p_type = p["type"].capitalize()
+            if p_type == "Bond":
                 v = np.linalg.norm(coords[idx[0]] - coords[idx[1]])
                 internals.append(v)
-            elif p["type"] == "Angle":
+            elif p_type == "Angle":
                 v1 = coords[idx[0]] - coords[idx[1]]
                 v2 = coords[idx[2]] - coords[idx[1]]
                 norm1 = np.linalg.norm(v1)
@@ -106,7 +107,7 @@ class ZMatrixEngine:
                 sin_theta = np.linalg.norm(np.cross(v1_u, v2_u))
                 cos_theta = np.clip(np.dot(v1_u, v2_u), -1.0, 1.0)
                 internals.append(np.arctan2(sin_theta, cos_theta))
-            elif p["type"] == "Dihedral":
+            elif p_type == "Dihedral":
                 v1 = coords[idx[1]] - coords[idx[0]]
                 v2 = coords[idx[2]] - coords[idx[1]]
                 v3 = coords[idx[3]] - coords[idx[2]]
@@ -126,6 +127,8 @@ class ZMatrixEngine:
                 x = np.dot(n1, n2)
                 y = np.dot(m1, n2)
                 internals.append(np.arctan2(y, x))
+            else:
+                raise ValueError(f"Unhandled coordinate type: {p['type']}")
                 
         return np.array(internals)
 
@@ -157,13 +160,13 @@ class ZMatrixEngine:
         try:
             quat = Rotation.from_matrix(R)
             rotated_coords = quat.apply(Q)
-            return rotated_coords
+            return rotated_coords + ref_com
         except ValueError:
             # Fallback for ill-conditioned matrices
             self.logger.warning("Quaternion initialization failed. Using raw SVD rotation matrix.")
-            return np.dot(Q, R.T)
+            return np.dot(Q, R.T) + ref_com
 
-    def compute_b_matrix(self, coords: np.ndarray, params: List[Dict], delta: float = 1e-5) -> np.ndarray:
+    def compute_b_matrix(self, coords: np.ndarray, params: list[dict], delta: float = 1e-5) -> np.ndarray:
         """
         Evaluates the Wilson B-Matrix (B_ij = d q_i / d x_j) using analytical Wilson s-vectors.
         """
@@ -188,19 +191,40 @@ class ZMatrixEngine:
                 v2 = r3 - r2
                 d1 = np.linalg.norm(v1)
                 d2 = np.linalg.norm(v2)
-                if d1 > 1e-10 and d2 > 1e-10:
+                
+                analytical_success = False
+                if d1 > 1e-6 and d2 > 1e-6:
                     u1 = v1 / d1
                     u2 = v2 / d2
                     cos_t = np.clip(np.dot(u1, u2), -1.0, 1.0)
-                    sin_t = max(np.sqrt(1.0 - cos_t**2), 1e-8)
+                    sin_t = np.sqrt(1.0 - cos_t**2)
                     
-                    s1 = (cos_t * u1 - u2) / (d1 * sin_t)
-                    s3 = (cos_t * u2 - u1) / (d2 * sin_t)
-                    s2 = -(s1 + s3)
-                    
-                    B_matrix[i, idx[0]*3:idx[0]*3+3] = s1
-                    B_matrix[i, idx[1]*3:idx[1]*3+3] = s2
-                    B_matrix[i, idx[2]*3:idx[2]*3+3] = s3
+                    if sin_t >= 1e-4:
+                        s1 = (cos_t * u1 - u2) / (d1 * sin_t)
+                        s3 = (cos_t * u2 - u1) / (d2 * sin_t)
+                        s2 = -(s1 + s3)
+                        
+                        B_matrix[i, idx[0]*3:idx[0]*3+3] = s1
+                        B_matrix[i, idx[1]*3:idx[1]*3+3] = s2
+                        B_matrix[i, idx[2]*3:idx[2]*3+3] = s3
+                        analytical_success = True
+                
+                if not analytical_success:
+                    # Fallback to high-precision central difference
+                    flat_coords = coords.flatten()
+                    for j in range(num_atoms * 3):
+                        c_fwd = flat_coords.copy()
+                        c_fwd[j] += delta
+                        q_fwd = self.calculate_internal_coordinates(c_fwd.reshape(-1, 3), [p])[0]
+                        c_bwd = flat_coords.copy()
+                        c_bwd[j] -= delta
+                        q_bwd = self.calculate_internal_coordinates(c_bwd.reshape(-1, 3), [p])[0]
+                        
+                        dq = q_fwd - q_bwd
+                        if dq > np.pi: dq -= 2*np.pi
+                        elif dq < -np.pi: dq += 2*np.pi
+                        
+                        B_matrix[i, j] = dq / (2.0 * delta)
             else:
                 # Fallback to high-precision central difference for dihedrals
                 flat_coords = coords.flatten()
@@ -221,9 +245,12 @@ class ZMatrixEngine:
 
         return B_matrix
 
+    _compute_b_matrix = compute_b_matrix
+
 if __name__ == "__main__":
     # Lightweight test block
     logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
     
     tuner = DynamicBoundsTuner()
     c_c_bounds = tuner.get_bond_bounds("C", "C")

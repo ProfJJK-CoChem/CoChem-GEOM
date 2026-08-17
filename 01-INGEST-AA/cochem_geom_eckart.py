@@ -1,7 +1,7 @@
+#!/usr/bin/env python3
 import logging
 logger = logging.getLogger(__name__)
-import hashlib  # SHA-256 artifact provenance tracking
-#!/usr/bin/env python3
+
 """
 CoChem-GEOM - Stage 1.2: Dynamic Eckart Frame Alignment & Decoupling Tensor (Suggestion 42)
 ---------------------------------------------------------------------------------------
@@ -12,14 +12,22 @@ and rotation from internal coordinates.
 """
 
 import numpy as np
-from typing import Tuple, Optional
+
+class EckartAlignmentError(ValueError):
+    pass
+
+class EckartDimensionMismatchError(ValueError):
+    pass
+
+class EckartSingularityError(RuntimeError):
+    pass
 
 class EckartFrameAligner:
     """Dynamic Eckart frame alignment tensor calculation and vibrational decoupling engine."""
 
     def align_eckart_frame(
-        self, ref_coords: np.ndarray, target_coords: np.ndarray, masses: Optional[np.ndarray] = None
-    ) -> Tuple[np.ndarray, np.ndarray, float]:
+        self, ref_coords: np.ndarray, target_coords: np.ndarray, masses: np.ndarray | None = None
+    ) -> tuple[np.ndarray, np.ndarray, float]:
         """
         Aligns target_coords to ref_coords satisfying Eckart conditions:
             sum(m_i * (r_i - r_i^0)) = 0  (Translation)
@@ -38,12 +46,26 @@ class EckartFrameAligner:
         """
         ref = np.asarray(ref_coords, dtype=float)
         target = np.asarray(target_coords, dtype=float)
+        
+        if ref.ndim != 2 or target.ndim != 2 or ref.shape != target.shape:
+            logger.error("Dimension mismatch between reference and target coordinates.")
+            raise EckartDimensionMismatchError("ref_coords and target_coords must have the same 2D shape.")
+        
         n_atoms = len(ref)
+        if n_atoms == 0:
+            logger.error("Empty coordinates array.")
+            raise ValueError("Coordinates must contain at least one atom (N > 0).")
 
         if masses is None:
             m = np.ones(n_atoms, dtype=float)
         else:
             m = np.asarray(masses, dtype=float)
+            if len(m) != n_atoms:
+                logger.error("Masses array length mismatch.")
+                raise EckartDimensionMismatchError("Length of masses must equal number of atoms.")
+            if np.sum(m) <= 0:
+                logger.error("Non-positive total mass.")
+                raise ValueError("Total mass must be positive.")
 
         m_tot = np.sum(m)
 
@@ -60,12 +82,16 @@ class EckartFrameAligner:
             A += m[i] * np.outer(target_centered[i], ref_centered[i])
 
         # SVD of covariance matrix A = V * S * W^T
-        V, S, Wt = np.linalg.svd(A)
+        try:
+            V, S, Wt = np.linalg.svd(A)
+        except np.linalg.LinAlgError as e:
+            logger.error("SVD failed during alignment.")
+            raise EckartSingularityError("SVD computation did not converge.") from e
         W = Wt.T
 
         # Reflection correction for proper rotation det(U) = +1
         d = np.linalg.det(V @ Wt)
-        diag = np.array([1.0, 1.0, d if d != 0 else 1.0])
+        diag = np.array([1.0, 1.0, 1.0 if d >= 0 else -1.0])
         U_Eckart = V @ np.diag(diag) @ Wt
 
         # Transform target coordinates: r_i' = U_Eckart^T * r_i_centered (or r_i_centered @ U_Eckart)
@@ -78,12 +104,15 @@ class EckartFrameAligner:
             e_rot += m[i] * np.cross(ref_centered[i], aligned_coords[i])
 
         rot_residual_norm = float(np.linalg.norm(e_rot))
+        if rot_residual_norm >= 1e-10:
+            logger.error(f"Rotational residual {rot_residual_norm} exceeds threshold.")
+            raise EckartAlignmentError(f"Rotational residual magnitude {rot_residual_norm} >= 1e-10")
 
         return aligned_coords, U_Eckart, rot_residual_norm
 
     def compute_decoupling_matrix(
-        self, coords: np.ndarray, masses: Optional[np.ndarray] = None
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        self, coords: np.ndarray, masses: np.ndarray | None = None
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Constructs the 3N x 3N vibrational projection operator:
             P_vib = I_3N - P_trans - P_rot
@@ -97,13 +126,28 @@ class EckartFrameAligner:
             Tuple (P_vib, T_Eckart) each of shape (3N, 3N).
         """
         c = np.asarray(coords, dtype=float)
+        
+        if c.ndim != 2:
+            logger.error("Coordinates must be a 2D array.")
+            raise EckartDimensionMismatchError("Coordinates must be a 2D array.")
+            
         n_atoms = len(c)
+        if n_atoms == 0:
+            logger.error("Empty coordinates array.")
+            raise ValueError("Coordinates must contain at least one atom (N > 0).")
+            
         n_dof = 3 * n_atoms
 
         if masses is None:
             m = np.ones(n_atoms, dtype=float)
         else:
             m = np.asarray(masses, dtype=float)
+            if len(m) != n_atoms:
+                logger.error("Masses array length mismatch.")
+                raise EckartDimensionMismatchError("Length of masses must equal number of atoms.")
+            if np.sum(m) <= 0:
+                logger.error("Non-positive total mass.")
+                raise ValueError("Total mass must be positive.")
 
         m_tot = np.sum(m)
         com = np.sum(c * m[:, np.newaxis], axis=0) / m_tot
@@ -131,11 +175,14 @@ class EckartFrameAligner:
 
         # Combine translation and rotation basis and Gram-Schmidt orthonormalize
         D_tr_combined = np.hstack([D_trans, D_rot_raw])
-        Q, R = np.linalg.qr(D_tr_combined)
+        try:
+            U, s, _ = np.linalg.svd(D_tr_combined, full_matrices=False)
+        except np.linalg.LinAlgError as e:
+            logger.error("SVD failed during decoupling matrix computation.")
+            raise EckartSingularityError("SVD computation did not converge.") from e
 
         # Retain independent non-zero columns (up to 6 for non-linear, 5 for linear)
-        rank = np.linalg.matrix_rank(D_tr_combined)
-        D_tr = Q[:, :rank]
+        D_tr = U[:, s > 1e-10]
 
         # Projection operators: T_Eckart = D_tr @ D_tr^T, P_vib = I_3N - T_Eckart
         T_Eckart = D_tr @ D_tr.T

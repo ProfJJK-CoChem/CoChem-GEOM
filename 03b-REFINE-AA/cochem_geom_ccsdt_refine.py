@@ -1,18 +1,17 @@
 import os
 import re
-import json
 import logging
 import subprocess
 import hashlib
 from pathlib import Path
-from typing import List, Dict, Tuple, Optional, Any
+from typing import Any
 import numpy as np
 import psutil
 import atexit
 from pydantic import BaseModel, Field
 
 class CoChemSystemConfig(BaseModel):
-    nprocs: int = Field(default_factory=lambda: int(os.environ.get("COCHEM_NPROCS", max(1, os.cpu_count() - 2))))
+    nprocs: int = Field(default_factory=lambda: int(os.environ.get("COCHEM_NPROCS", max(1, (os.cpu_count() or 4) - 2))))
     maxcore: int = Field(default_factory=lambda: int(os.environ.get("COCHEM_MAXCORE", 4000)))
     artifacts_dir: str = Field(default_factory=lambda: os.environ.get("COCHEM_ARTIFACT_DIR", str(Path.home() / "cochem_artifacts")))
 
@@ -37,15 +36,15 @@ def hash_file(filepath: Path) -> str:
             buf = f.read(65536)
     return hasher.hexdigest()
 
-def sweep_zombies(proc: subprocess.Popen):
-    if proc is not None and proc.poll() is None:
-        try:
-            parent = psutil.Process(proc.pid)
-            for child in parent.children(recursive=True):
-                child.kill()
-            parent.kill()
-        except psutil.NoSuchProcess:
-            pass
+def sweep_zombies() -> None:
+    try:
+        parent = psutil.Process(os.getpid())
+        for child in parent.children(recursive=True):
+            child.kill()
+    except psutil.NoSuchProcess:
+        pass
+
+atexit.register(sweep_zombies)
 
 class ConstrainedORCAOptimizer:
     def __init__(self, workspace_dir: Path) -> None:
@@ -63,20 +62,20 @@ class ConstrainedORCAOptimizer:
                 with open(config_path, "r") as f:
                     return CoChemSystemConfig.parse_raw(f.read())
             except Exception as ex:
-                pass
+                self.logger.error(f"Failed to load config: {ex}")
         return CoChemSystemConfig()
 
     def generate_input(
         self,
         base_name: str,
-        elements: List[str],
+        elements: list[str],
         coords: np.ndarray,
         charge: int = 0,
         mult: int = 1,
         method: str = "wB97M-V",
         dispersion: str = "D4",
         is_weak_complex: bool = False,
-        freeze_monomers: Optional[List[List[int]]] = None,
+        freeze_monomers: list[list[int]] | None = None,
         inhess: str = "XTB2"
     ) -> Path:
         if is_weak_complex and dispersion not in ["D3", "D4"]:
@@ -91,11 +90,8 @@ class ConstrainedORCAOptimizer:
         grid_settings = "defgrid1 defgrid3" # pseudo-representation of dynamic grid tightening
         
         # Base ORCA header
-        header = f"! {method_prefix}{method} {dispersion} def2-TZVPP Opt TightOpt\n"
-        if inhess in ["XTB2", "Lindh"]:
-            header += f"! {inhess} preconditioning\n"
-        else:
-            header += f"! {inhess} preconditioning\n" # Default to whatever passed if not Calc_Hess
+        header = f"! {method_prefix}{method} {dispersion} def2-TZVPP Opt TightOpt {grid_settings}\n"
+        header += f"! InHess {inhess}\n"
             
         header += f"%pal nprocs {self.config.nprocs} end\n"
         header += f"%maxcore {self.config.maxcore}\n"
@@ -114,7 +110,7 @@ class ConstrainedORCAOptimizer:
                 # Freeze monomer internal coordinates
                 for i in range(len(monomer)):
                     for j in range(i+1, len(monomer)):
-                        geom_block += f"    {{ C {monomer[i]} {monomer[j]} C }}\n"
+                        geom_block += f"    {{ B {monomer[i]} {monomer[j]} C }}\n"
             geom_block += "  end\n"
         geom_block += "end\n"
         
@@ -129,7 +125,7 @@ class ConstrainedORCAOptimizer:
         self.logger.info(f"Generated ORCA input: {inp_path.name}")
         return inp_path
 
-    def dispatch_and_validate(self, inp_path: Path) -> Dict[str, Any]:
+    def dispatch_and_validate(self, inp_path: Path) -> dict[str, Any]:
         out_path = inp_path.with_suffix(".out")
         gbw_path = inp_path.with_suffix(".gbw")
         
@@ -153,6 +149,7 @@ class ConstrainedORCAOptimizer:
             raise EngineConvergenceError("Optimization timed out.")
         except subprocess.CalledProcessError as e:
             self.logger.error(f"ORCA crashed with exit code {e.returncode}")
+            raise EngineConvergenceError(f"ORCA crashed with exit code {e.returncode}")
         except FileNotFoundError:
             self.logger.error(f"[MISSING DATA] Binary {self.orca_binary} not found.")
             raise EngineConvergenceError(f"[MISSING DATA] Binary {self.orca_binary} not found.")
@@ -170,13 +167,23 @@ class ConstrainedORCAOptimizer:
         s2_match = re.search(r"Expectation value of <S\*\*2>\s+:\s+([0-9.]+)", content)
         if s2_match:
             s2_val = float(s2_match.group(1))
-            mult = float(re.search(r"Multiplicity\s+([0-9]+)", content).group(1))
-            s_exact = (mult - 1) / 2
-            s2_exact = s_exact * (s_exact + 1)
-            if s2_exact > 0:
-                contamination = (s2_val - s2_exact) / s2_exact
-                if contamination > 0.10:
-                    raise SpinContaminationError(f"Spin contamination {contamination*100:.1f}% exceeds 10% limit.")
+            mult_match = re.search(r"Multiplicity\s+([0-9]+)", content)
+            if mult_match:
+                mult = float(mult_match.group(1))
+                s_exact = (mult - 1) / 2
+                s2_exact = s_exact * (s_exact + 1)
+                if s2_exact > 0:
+                    contamination = (s2_val - s2_exact) / s2_exact
+                    if contamination > 0.10:
+                        raise SpinContaminationError(f"Spin contamination {contamination*100:.1f}% exceeds 10% limit.")
+                        
+        t1_match = re.search(r"T1 diagnostic\s+.*\s+([0-9.]+)", content)
+        if t1_match and float(t1_match.group(1)) > 0.02:
+            raise MultireferenceInstabilityError(f"High T1 diagnostic: {t1_match.group(1)}")
+            
+        d1_match = re.search(r"D1 diagnostic\s+.*\s+([0-9.]+)", content)
+        if d1_match and float(d1_match.group(1)) > 0.05:
+            raise MultireferenceInstabilityError(f"High D1 diagnostic: {d1_match.group(1)}")
                     
         res = {
             "out_hash": hash_file(out_path),
@@ -200,24 +207,25 @@ class MPQCSinglePointEngine:
             try:
                 with open(config_path, "r") as f:
                     return CoChemSystemConfig.parse_raw(f.read())
-            except Exception:
-                pass
+            except Exception as ex:
+                self.logger.error(f"Failed to load config: {ex}")
         return CoChemSystemConfig()
 
     def generate_input(
         self,
         base_name: str,
-        elements: List[str],
+        elements: list[str],
         coords: np.ndarray,
-        frozen_zmat: Optional[List[Dict]] = None,
+        frozen_zmat: list[dict] | None = None,
         charge: int = 0,
         mult: int = 1,
         inhess: str = "XTB2",
         freeze_mode: str = "relaxed",
-        monomer_atom_indices: Optional[List[List[int]]] = None,
+        monomer_atom_indices: list[list[int]] | None = None,
         pyscf_escalator_optimized: bool = False
     ) -> Path:
-        assert pyscf_escalator_optimized, "Escalator Rule violation: Geometry must be pre-optimized by PySCF DFT escalator."
+        if not pyscf_escalator_optimized:
+            raise ValueError("Escalator Rule violation: Geometry must be pre-optimized by PySCF DFT escalator.")
         
         inp_path = self.artifacts_dir / f"{base_name}_ccsdt_refine.inp"
         
@@ -241,7 +249,7 @@ class MPQCSinglePointEngine:
         self.logger.info(f"Generated MPQC SP input: {inp_path.name}")
         return inp_path
 
-    def dispatch_and_validate(self, inp_path: Path) -> Dict[str, Any]:
+    def dispatch_and_validate(self, inp_path: Path) -> dict[str, Any]:
         out_path = inp_path.with_suffix(".out")
         self.logger.info(f"Dispatching {inp_path.name} to MPQC...")
         
@@ -265,6 +273,7 @@ class MPQCSinglePointEngine:
             raise EngineConvergenceError(f"SP timed out after 300s. Check {out_path.name}.")
         except subprocess.CalledProcessError:
             self.logger.error("MPQC execution returned a non-zero exit state.")
+            raise EngineConvergenceError("MPQC execution returned a non-zero exit state.")
         except FileNotFoundError:
             self.logger.error(f"[MISSING DATA] Binary {self.mpqc_binary} not found.")
             raise EngineConvergenceError(f"[MISSING DATA] Binary {self.mpqc_binary} not found.")

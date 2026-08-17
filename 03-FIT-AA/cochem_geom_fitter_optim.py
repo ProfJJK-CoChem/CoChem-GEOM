@@ -14,12 +14,7 @@ import scipy.optimize
 import scipy.sparse as sparse
 from typing import Callable, Dict, Tuple, Optional, List
 
-try:
-    import torch
-    TORCH_AVAILABLE = True
-except ImportError:
-    torch = None
-    TORCH_AVAILABLE = False
+logger = logging.getLogger(__name__)
 
 
 class KraitchmanEngine:
@@ -66,28 +61,24 @@ class KraitchmanEngine:
         ])
         
         cond_k = float(np.linalg.cond(denom_mat))
-        trap_triggered = (cond_k > 1e5) or any(abs(P_parent) < 1e-3) or any(abs(np.diff(parent_I)) < 1e-4)
         
-        if trap_triggered:
-            self.logger.warning(f"Kraitchman Condition Trap Triggered! (cond={cond_k:.2e}, small planar moments detected). Applying SVD Costain-cc rebalance.")
-
         for i in range(3):
-            # Near-axis or small planar moment safeguard
-            if delta_P[i] < 0.0 or trap_triggered and abs(delta_P[i]) < 0.2:
-                if abs(delta_P[i]) < 0.25 or trap_triggered:
-                    self.logger.warning(f"Axis {['a','b','c'][i]} yielded small/negative Delta P ({delta_P[i]:.4f}). Pinning to 0.0 (Costain-cc COM rebalance).")
-                    coords[i] = 0.0
-                else:
-                    self.logger.error(f"Severe imaginary coordinate on axis {['a','b','c'][i]}: Delta P = {delta_P[i]:.4f}.")
-                    coords[i] = 0.0
+            j = (i + 1) % 3
+            k = (i + 2) % 3
+            term_j = 1.0 + delta_P[j] / denom_mat[i, j]
+            term_k = 1.0 + delta_P[k] / denom_mat[i, k]
+            val = (delta_P[i] / mu) * term_j * term_k
+            
+            if val < 0.0:
+                self.logger.warning(f"Axis {['a','b','c'][i]} yielded negative coordinate squared ({val:.4f}). Pinning to 0.0.")
+                coords[i] = 0.0
             else:
-                coords[i] = np.sqrt(delta_P[i] / mu)
+                coords[i] = np.sqrt(val)
 
         if return_report:
             return {
                 "coordinates": coords,
-                "condition_number": cond_k,
-                "trap_triggered": trap_triggered
+                "condition_number": cond_k
             }
             
         return coords
@@ -97,13 +88,8 @@ class KraitchmanEngine:
 class MultiSeedOptimizer:
     """Executes multi-start non-linear parameter fitting with condition fallbacks."""
     
-    def __init__(self, device: str = "cpu") -> None:
+    def __init__(self) -> None:
         self.logger = logging.getLogger("CoChem_GEOM_Optimizer")
-        self.device = device if TORCH_AVAILABLE else "cpu"
-        if self.device == "cuda" and torch.cuda.is_available():
-            self.logger.info("PyTorch CUDA backend initialized for batch seed evaluation.")
-        else:
-            self.logger.info("NumPy CPU backend initialized. (PyTorch/CUDA disabled or absent).")
 
     def _check_divergence(self, coords: np.ndarray, elements: Optional[List[str]] = None) -> bool:
         """
@@ -208,6 +194,9 @@ class MultiSeedOptimizer:
         return covariance, used_svd, svd_report
 
     def execute_fit(self, 
+                    objective_fn: Callable,
+                    jacobian_fn: Callable,
+                    bounds: Tuple[List[float], List[float]],
                     experimental_weights: np.ndarray,
                     n_seeds: int = 50) -> Dict:
         """
@@ -226,7 +215,8 @@ class MultiSeedOptimizer:
                 if cost < best_cost:
                     best_cost = cost
                     best_seed = seed
-            except Exception:
+            except Exception as e:
+                self.logger.warning(f"Objective evaluation failed for seed {seed}: {e}")
                 continue
 
         self.logger.info("Global basin identified. Initiating Trust-Region Reflective polish.")
@@ -280,8 +270,8 @@ if __name__ == "__main__":
     # y = x1 + x2 (Perfectly correlated parameters, infinite condition number)
     test_weights = np.ones(1)
     
-    def test_obj(p) -> None: return np.array([p[0] + p[1] - 5.0])
-    def test_jac(p) -> None: return np.array([[1.0, 1.0]])
+    def test_obj(p) -> np.ndarray: return np.array([p[0] + p[1] - 5.0])
+    def test_jac(p) -> np.ndarray: return np.array([[1.0, 1.0]])
     
     res = opt.execute_fit(
         objective_fn=test_obj,

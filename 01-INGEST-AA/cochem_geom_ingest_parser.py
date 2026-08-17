@@ -11,9 +11,11 @@ import re
 import json
 import logging
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import Optional, Any
 from pydantic import BaseModel, Field
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 class ExperimentalConstant(BaseModel):
     species_id: str
@@ -55,25 +57,29 @@ class SpectraIngestionEngine:
         }
         
         # Parse isotope patterns in species_id
-        matches = re.findall(r"(\d*)([A-Z][a-z]?|D)", species_id)
+        matches = list(re.finditer(r"(?:(?P<mass>\d+))?(?P<elem>[A-Z][a-z]?|D)(?P<count>\d+)?", species_id))
         if not matches:
             return 100.0
             
         net_abundance = 100.0
         substituted = False
         
-        for mass_str, elem in matches:
+        for match in matches:
+            mass_str = match.group("mass") or ""
+            elem = match.group("elem")
+            count = int(match.group("count") or 1)
+            
             tag = f"{mass_str}{elem}"
             if tag in iso_abundance_map:
                 substituted = True
-                net_abundance *= (iso_abundance_map[tag] / 100.0)
+                net_abundance *= (iso_abundance_map[tag] / 100.0) ** count
             elif mass_str:
                 try:
                     import mendeleev
                     iso = mendeleev.isotope(elem, int(mass_str))
                     if iso and iso.abundance is not None:
                         substituted = True
-                        net_abundance *= (float(iso.abundance) / 100.0)
+                        net_abundance *= (float(iso.abundance) / 100.0) ** count
                 except Exception as ex:
                     self.logger.debug(f"Mendeleev lookup failed for {elem}-{mass_str}: {ex}")
                     
@@ -81,7 +87,7 @@ class SpectraIngestionEngine:
             return float(net_abundance)
         return 100.0
 
-    def parse_pickett_par(self, par_path: Path) -> List[ExperimentalConstant]:
+    def parse_pickett_par(self, par_path: Path) -> list[ExperimentalConstant]:
         """
         Extracts optimized rotational constants from a Pickett .par file.
         Uses fixed character slice parsing and fallback overlap-tolerant regex
@@ -101,7 +107,7 @@ class SpectraIngestionEngine:
         species_id = par_path.stem
 
         for line_num, line in enumerate(lines):
-            if not line.strip() or line.startswith('/'):
+            if not line.strip() or line.startswith('/') or line_num == 0:
                 continue
                 
             # Method 1: Try fixed-width slices (Standard Pickett I10, F20.10, F20.10)
@@ -156,13 +162,13 @@ class SpectraIngestionEngine:
         self.logger.info(f"Parsed {len(constants)} constants from {par_path.name}")
         return constants
 
-    def parse_spycfit_json(self, json_path: Path) -> List[ExperimentalConstant]:
+    def parse_spycfit_json(self, json_path: Path) -> list[ExperimentalConstant]:
         """
         Ingests native CoChem-SpycFit optimized JSON payloads.
         """
         constants = []
         try:
-            with open(json_path, 'r') as f:
+            with open(json_path, 'r', encoding='utf-8') as f:
                 data = json.loads(f.read())
         except json.JSONDecodeError:
             raise ValueError(f"Corrupted SpycFit Payload: {json_path.name}")
@@ -171,11 +177,18 @@ class SpectraIngestionEngine:
         abundance = self._determine_abundance(species_id)
         
         for param, values in data.get("optimized_constants", {}).items():
+             if isinstance(values, dict):
+                 val_mhz = float(values.get("value", 0.0))
+                 unc_mhz = float(values.get("uncertainty", 0.0))
+             else:
+                 val_mhz = float(values)
+                 unc_mhz = 0.0
+
              constants.append(ExperimentalConstant(
                  species_id=species_id,
                  constant_type=param.upper(),
-                 value_mhz=float(values.get("value", 0.0)),
-                 uncertainty_mhz=float(values.get("uncertainty", 0.0)),
+                 value_mhz=val_mhz,
+                 uncertainty_mhz=unc_mhz,
                  is_isotopologue=(abundance < 99.0),
                  abundance_percentage=abundance,
                  source_file=json_path.name
@@ -184,7 +197,7 @@ class SpectraIngestionEngine:
         self.logger.info(f"Ingested {len(constants)} constants via SpycFit JSON from {json_path.name}")
         return constants
 
-    def filter_isotopic_abundance(self, constants: List[ExperimentalConstant], threshold: float = 0.01) -> List[ExperimentalConstant]:
+    def filter_isotopic_abundance(self, constants: list[ExperimentalConstant], threshold: float = 0.01) -> list[ExperimentalConstant]:
         """
         Sweeps the ingested pool. Flags and suppresses species representing
         less than the allowed natural abundance threshold.
@@ -213,7 +226,7 @@ class SpectraIngestionEngine:
         """Dumps the pre-flight logic logs to the workspace."""
         report_path = self.workspace_dir / "reports" / "triage_report.json"
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(report_path, 'w') as f:
+        with open(report_path, 'w', encoding='utf-8') as f:
             json.dump(self.triage_log, f, indent=4)
 
 if __name__ == "__main__":

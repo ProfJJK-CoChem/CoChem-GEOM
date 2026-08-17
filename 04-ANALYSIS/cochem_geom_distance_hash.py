@@ -1,6 +1,6 @@
+#!/usr/bin/env python3
 import logging
 logger = logging.getLogger(__name__)
-#!/usr/bin/env python3
 """
 CoChem-GEOM - Stage 4.0: 1D Interatomic Distance Matrix Hashing & Conformer Deduplication (Suggestion 44)
 --------------------------------------------------------------------------------------------------
@@ -11,14 +11,17 @@ to detect topological equivalence and deduplicate molecular conformers.
 import hashlib
 import numpy as np
 from scipy.spatial.distance import pdist
-from typing import Tuple, List, Dict, Any
+from typing import Any
+
+class GeometryHashError(ValueError):
+    pass
 
 class GeometryDistanceHasher:
     """Rotationally and translationally invariant interatomic distance matrix hasher."""
 
     def compute_distance_hash(
         self, coords: np.ndarray, precision_digits: int = 3
-    ) -> Tuple[str, np.ndarray]:
+    ) -> tuple[str, np.ndarray]:
         """
         Computes SHA-256 hash of 1D sorted interatomic distance matrix.
 
@@ -32,6 +35,11 @@ class GeometryDistanceHasher:
                 - sorted_distances: Sorted 1D numpy array of upper-triangle interatomic distances
         """
         coords = np.asarray(coords, dtype=float)
+        if coords.ndim != 2 or coords.shape[1] != 3:
+            raise GeometryHashError(f"Invalid coordinates shape: {coords.shape}. Expected (N, 3).")
+        if not np.isfinite(coords).all():
+            raise GeometryHashError("Coordinates contain non-finite values (NaN or Inf).")
+
         if len(coords) < 2:
             sorted_dists = np.array([0.0])
         else:
@@ -107,9 +115,9 @@ class GeometryDistanceHasher:
         return B
 
     def deduplicate_conformers(
-        self, conformers: List[Dict], rmsd_threshold: float = 0.05,
+        self, conformers: list[dict[str, Any]], rmsd_threshold: float = 0.05,
         angle_threshold_deg: float = 1.0, bthr: float = 0.001
-    ) -> List[Dict]:
+    ) -> list[dict[str, Any]]:
         """
         Deduplicates a list of conformer dictionaries using CREGEN / GOAT two-stage limits (§9B.3):
         - SHA-256 distance matrix hashing
@@ -118,7 +126,7 @@ class GeometryDistanceHasher:
         - Rotational constant relative difference (bthr <= 0.001 = 0.1%)
 
         Args:
-            conformer_list: List of dicts containing key "coordinates" (N_atoms, 3)
+            conformers: List of dicts containing key "coordinates" (N_atoms, 3)
             rmsd_threshold: Maximum distance vector L2-norm difference in Å (default 0.05)
             angle_threshold_deg: Maximum angular/dihedral difference in degrees (default 1.0)
             bthr: Maximum relative difference in rotational constants B (default 0.001)
@@ -135,9 +143,14 @@ class GeometryDistanceHasher:
         for conf in conformers:
             coords = conf.get("coordinates")
             if coords is None:
+                logger.warning("Skipping conformer record missing 'coordinates' key.")
                 continue
 
-            h_digest, dist_vec = self.compute_distance_hash(coords)
+            try:
+                h_digest, dist_vec = self.compute_distance_hash(coords)
+            except GeometryHashError as e:
+                logger.warning(f"Skipping malformed conformer record: {e}")
+                continue
 
             if h_digest in seen_hashes:
                 continue
@@ -153,7 +166,7 @@ class GeometryDistanceHasher:
                     if len(prev_angle) == len(angle_vec):
                         max_angle_diff = float(np.max(np.abs(prev_angle - angle_vec)))
                     else:
-                        max_angle_diff = 0.0
+                        max_angle_diff = float('inf')
 
                     rel_b_diff = float(np.max(np.abs(prev_b - rot_b) / (prev_b + 1e-12)))
 

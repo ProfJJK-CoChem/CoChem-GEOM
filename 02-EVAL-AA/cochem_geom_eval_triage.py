@@ -1,4 +1,3 @@
-import hashlib  # SHA-256 artifact provenance tracking
 #!/usr/bin/env python3
 """
 CoChem-GEOM (v4.0) - Stage 2.2: Variable Reduction & DoF Triage
@@ -12,10 +11,10 @@ import logging
 import numpy as np
 import ipywidgets as widgets
 from IPython.display import display, clear_output
-from typing import List, Dict, Optional, Tuple, Any
+from typing import Optional, Any
 
 class VariableTriageEngine:
-    def __init__(self, elements: List[str], ccsdt_coords: Optional[np.ndarray] = None) -> None:
+    def __init__(self, elements: list[str], ccsdt_coords: Optional[np.ndarray] = None) -> None:
         """
         Initializes the Triage Engine.
         elements: List of atomic symbols (e.g., ['C', 'C', 'H', 'H']).
@@ -26,7 +25,12 @@ class VariableTriageEngine:
         self.ccsdt_coords = ccsdt_coords
         
         self.num_atoms = len(elements)
-        self.total_internal_coords = 3 * self.num_atoms - 6 if self.num_atoms > 2 else 1
+        if self.num_atoms > 2:
+            self.total_internal_coords = 3 * self.num_atoms - 6
+        elif self.num_atoms == 2:
+            self.total_internal_coords = 1
+        else:
+            self.total_internal_coords = 0
         
         # Internal state tracking
         self.parameters = self._initialize_parameter_map()
@@ -36,7 +40,7 @@ class VariableTriageEngine:
         # UI Components
         self.out_badge = widgets.Output()
 
-    def _initialize_parameter_map(self) -> List[Dict]:
+    def _initialize_parameter_map(self) -> list[dict[str, Any]]:
         """
         Builds topological Z-matrix trees mapping internal coordinates (3N-6).
         Enforces valid connectivity graph topology.
@@ -118,7 +122,7 @@ class VariableTriageEngine:
                 float_count += 1
         return float_count
 
-    def apply_hydrogen_lock(self) -> Any:
+    def apply_hydrogen_lock(self) -> None:
         """
         Single-click action to freeze strictly X-H Bond length parameters.
         Preserves H-X-Y angles and rotamer dihedrals.
@@ -136,14 +140,22 @@ class VariableTriageEngine:
         self.logger.info(f"Hydrogen Lock applied. Froze {lock_count} X-H bond parameters.")
         self._update_badge()
 
-    def apply_theoretical_offsets(self, primary_idx: int, linked_indices: List[int]) -> Any:
+    def apply_theoretical_offsets(self, primary_idx: int, linked_indices: list[int]) -> None:
         """
         Links pseudo-symmetric parameters into a single variable using CCSD(T) offsets.
         Calculates exact geometric differences from high-level reference coordinates.
         """
         if self.ccsdt_coords is None:
             self.logger.error("Theoretical offsets cannot be applied without CCSD(T) reference coordinates.")
-            return
+            raise ValueError("ccsdt_coords missing")
+
+        if primary_idx < 0 or primary_idx >= len(self.parameters):
+            raise IndexError("primary_idx out of bounds")
+        for linked_idx in linked_indices:
+            if linked_idx < 0 or linked_idx >= len(self.parameters):
+                raise IndexError("linked_idx out of bounds")
+            if self.parameters[linked_idx]["type"] != self.parameters[primary_idx]["type"]:
+                raise ValueError("Linked parameter type must match primary parameter type")
 
         coords = self.ccsdt_coords
         primary_param = self.parameters[primary_idx]
@@ -155,7 +167,8 @@ class VariableTriageEngine:
             elif p["type"] == "Angle":
                 v1 = coords[idx[0]] - coords[idx[1]]
                 v2 = coords[idx[2]] - coords[idx[1]]
-                cost = np.clip(np.dot(v1, v2)/(np.linalg.norm(v1)*np.linalg.norm(v2)), -1.0, 1.0)
+                denominator = max(np.linalg.norm(v1) * np.linalg.norm(v2), 1e-12)
+                cost = np.clip(np.dot(v1, v2) / denominator, -1.0, 1.0)
                 return float(np.degrees(np.arccos(cost)))
             elif p["type"] == "Dihedral":
                 v1 = coords[idx[1]] - coords[idx[0]]
@@ -185,7 +198,7 @@ class VariableTriageEngine:
         self.logger.info(f"Linked parameters {linked_indices} to primary parameter {primary_idx} with CCSD(T) offsets.")
         self._update_badge()
 
-    def evaluate_sufficiency(self, num_constants: int, rot_constants: Optional[Tuple[float, float, float]] = None) -> widgets.HTML:
+    def evaluate_sufficiency(self, num_constants: int, rot_constants: Optional[tuple[float, float, float]] = None) -> widgets.HTML:
         """
         Evaluates DoF math: (Variables + 1) <= Effective Constants.
         Incorporates Ray's asymmetry parameter kappa = (2B - A - C)/(A - C) to discount redundant constants for symmetric tops.
@@ -216,14 +229,16 @@ class VariableTriageEngine:
             
         return widgets.HTML(html_str)
 
-    def _update_badge(self, change=None) -> Any:
+    def _update_badge(self, change=None) -> None:
         """Callback to refresh the sufficiency badge when UI state changes."""
         with self.out_badge:
             clear_output(wait=True)
             display(self.evaluate_sufficiency(self.experimental_constants_count))
 
-    def render_dashboard(self, initial_constants: int) -> Any:
+    def render_dashboard(self, initial_constants: int) -> None:
         """Renders the Jupyter ipywidgets control panel."""
+        if initial_constants <= 0:
+            raise ValueError("initial_constants must be > 0")
         self.experimental_constants_count = initial_constants
         
         # UI Elements
@@ -240,11 +255,11 @@ class VariableTriageEngine:
         )
 
         # Callbacks
-        def on_const_change(change) -> Any:
+        def on_const_change(change) -> None:
             self.experimental_constants_count = change['new']
             self._update_badge()
 
-        def on_h_lock_click(b) -> Any:
+        def on_h_lock_click(b) -> None:
             self.apply_hydrogen_lock()
 
         const_input.observe(on_const_change, names='value')
@@ -270,7 +285,7 @@ if __name__ == "__main__":
     sample_ccsdt = np.zeros((11, 3)) 
     
     triage = VariableTriageEngine(elements=sample_elements, ccsdt_coords=sample_ccsdt)
-    logger.info(f"Initial 3N-6 Variables for Pyridine: {triage.get_float_variables_count()}")
+    triage.logger.info(f"Initial 3N-6 Variables for Pyridine: {triage.get_float_variables_count()}")
     
     # Render with only 3 constants (A, B, C for one isotopologue)
     triage.render_dashboard(initial_constants=3)

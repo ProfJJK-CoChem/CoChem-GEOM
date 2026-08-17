@@ -9,7 +9,7 @@ to warn against thermal zero-point out-of-plane geometric distortions.
 
 import logging
 import numpy as np
-from typing import Optional, Dict, List, Any
+from typing import Any
 import ipywidgets as widgets
 from IPython.display import display, HTML
 try:
@@ -24,7 +24,7 @@ class SymmetryControllerUI:
         self.logger = logging.getLogger("CoChem_GEOM_Symmetry")
         self.symmetry_override_dict = {}
 
-    def check_planar_inertial_defect(self, principal_moments: np.ndarray) -> Optional[widgets.HTML]:
+    def check_planar_inertial_defect(self, principal_moments: np.ndarray) -> widgets.HTML | None:
         """
         Evaluates ΔI = Ic - Ia - Ib.
         principal_moments: [Ia, Ib, Ic] in amu*Å^2 (sorted smallest to largest)
@@ -37,34 +37,33 @@ class SymmetryControllerUI:
         # Dynamically scale lower bound threshold for large polycyclics / PAHs
         lower_threshold = -max(1.5, 0.015 * total_I)
         
-        if delta_I > 1e-4:
-             self.logger.error(f"Strict Sign Check Failed: Classical inertial defect cannot be positive. ΔI = {delta_I:.3f}")
-             raise ValueError(f"Physically impossible classical inertial defect (ΔI = {delta_I:.3f} > 0). Sign must be right.")
-             
-        if abs(delta_I) < 0.05:
-            return widgets.HTML("<b style='color:green;'>[Planar]</b> Inertial Defect (ΔI) ≈ 0.")
-        elif lower_threshold <= delta_I < -0.05:
+        if delta_I > 0.2 or delta_I < lower_threshold:
+             return widgets.HTML(f"<b style='color:blue;'>[Non-Planar]</b> Inertial Defect (ΔI = {delta_I:.3f} amu·Å²).")
+        elif lower_threshold <= delta_I <= -0.05:
             msg = f"<b style='color:orange;'>[Thermal Warning]</b> Negative Inertial Defect (ΔI = {delta_I:.3f} amu·Å²). " \
                   f"Geometry appears non-planar but is likely driven by out-of-plane zero-point vibrations. " \
                   f"Consider enforcing planarity constraints."
             self.logger.warning(f"Thermal Defect Detected: {delta_I:.3f}")
             return widgets.HTML(msg)
-        elif delta_I < lower_threshold:
-             return widgets.HTML(f"<b style='color:blue;'>[Non-Planar]</b> Inertial Defect (ΔI = {delta_I:.3f} amu·Å²).")
-        return None
+        else:
+             return widgets.HTML(f"<b style='color:green;'>[Planar]</b> Inertial Defect (ΔI = {delta_I:.3f} amu·Å²) is within valid planar range.")
 
-    def analyze_symmetry(self, coords: np.ndarray, elements: list, species_id: str) -> str:
+    def analyze_symmetry(self, coords: np.ndarray, elements: list[str], species_id: str) -> str:
         """
         Uses molsym to detect the point group.
         coords: (N,3) Cartesian coordinates.
         elements: List of atomic symbols (e.g., ['C', 'H', 'H']).
-        Translates to Center of Mass and rounds to 1e-5 tolerance to prevent false C1 classification.
+        Translates to Geometric Centroid and rounds to 1e-5 tolerance to prevent false C1 classification.
         """
+        if not MOLSYM_AVAILABLE or molsym is None:
+            self.logger.warning(f"[{species_id}] molsym not available. Defaulting to C1.")
+            return "C1"
+
         try:
-            # Translate geometry to Center of Mass and round to 1e-5 tolerance
-            com = np.mean(coords, axis=0)
-            coords_com = coords - com
-            coords_clean = np.round(coords_com / 1e-5) * 1e-5
+            # Translate geometry to Geometric Centroid and round to 1e-5 tolerance
+            centroid = np.mean(coords, axis=0)
+            coords_centered = coords - centroid
+            coords_clean = np.round(coords_centered / 1e-5) * 1e-5
 
             # Construct formatted string for molsym ingestion
             mol_str = f"{len(elements)}\n\n"
@@ -79,7 +78,7 @@ class SymmetryControllerUI:
             self.logger.error(f"[{species_id}] molsym detection failed: {e}. Defaulting to C1.")
             return "C1"
 
-    def render_hitl_dashboard(self, geometry_payloads: dict) -> Any:
+    def render_hitl_dashboard(self, geometry_payloads: dict[str, Any]) -> Any:
         """
         Renders an interactive UI for all isomers/isotopologues.
         geometry_payloads: Dict containing coords, elements, and moments for each species.
@@ -110,12 +109,11 @@ class SymmetryControllerUI:
             )
             
             # Define callback for manual override
-            def on_change(change, s_id=species_id) -> Any:
-                if change['type'] == 'value':
-                    self.logger.info(f"[{s_id}] Symmetry overridden by user: {change['old']} -> {change['new']}")
-                    self.symmetry_override_dict[s_id] = change['new']
+            def on_change(change: dict[str, Any], s_id: str = species_id) -> None:
+                self.logger.info(f"[{s_id}] Symmetry overridden by user: {change['old']} -> {change['new']}")
+                self.symmetry_override_dict[s_id] = change['new']
             
-            dropdown.observe(on_change)
+            dropdown.observe(on_change, names='value')
             
             # 4. Construct Row
             if defect_widget:
@@ -154,4 +152,4 @@ if __name__ == "__main__":
     
     # Render (will print HTML repr in terminal if ipywidgets is headless)
     sym_engine.render_hitl_dashboard(sample_payload)
-    logger.info(f"Final Captured State: {sym_engine.symmetry_override_dict}")
+    logging.info(f"Final Captured State: {sym_engine.symmetry_override_dict}")

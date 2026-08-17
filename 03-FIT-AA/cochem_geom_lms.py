@@ -1,20 +1,18 @@
-import logging
-logger = logging.getLogger(__name__)
 #!/usr/bin/env python3
 """
-CoChem-GEOM - Stage 3.4: Low-Mode Sampling (LMS) Conformational Search Generator (Suggestions 43 & 45)
+CoChem-GEOM - Stage 3.4: Low-Mode Sampling (LMS) Conformational Search Generator
 --------------------------------------------------------------------------------------------------
 Generates trial conformers along low-frequency normal mode eigenvectors, aligns geometries to Eckart frame,
 performs heavy-atom Kabsch RMSD clustering (threshold <= 0.5 A), filters by energy window (delta_E <= 5.0 kcal/mol),
 and serializes fit_provenance.json metadata.
 """
+import logging
+logger = logging.getLogger(__name__)
 
 import os
 import json
 import hashlib
 import numpy as np
-from typing import List, Dict, Tuple, Optional
-from scipy.spatial.distance import pdist
 
 # Import sibling modules
 import sys
@@ -27,7 +25,13 @@ from cochem_geom_eckart import EckartFrameAligner
 try:
     from cochem_geom_distance_hash import GeometryDistanceHasher
 except ImportError:
-    from cochem_geom_distance_hash import GeometryDistanceHasher
+    from .cochem_geom_distance_hash import GeometryDistanceHasher
+
+class EckartSingularityError(Exception):
+    pass
+
+class EckartAlignmentError(Exception):
+    pass
 
 
 COVALENT_RADII_ANG = {
@@ -39,22 +43,27 @@ COVALENT_RADII_ANG = {
 class ConformationalSearchGenerator:
     """Low-Mode Sampling (LMS) conformer generator with heavy-atom RMSD clustering and energy filtering."""
 
-    def __init__(self, seed: Optional[int] = None) -> None:
+    def __init__(self, seed: int | None = None) -> None:
         self.seed = seed
         self.rng = np.random.default_rng(seed)
         self.eckart_aligner = EckartFrameAligner()
         self.hasher = GeometryDistanceHasher()
 
     def _estimate_spring_hessian(
-        self, coords: np.ndarray, masses: np.ndarray, elements: Optional[List[str]] = None,
-        hessian: Optional[np.ndarray] = None
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        self, coords: np.ndarray, masses: np.ndarray, elements: list[str] | None = None,
+        hessian: np.ndarray | None = None
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Constructs Cartesian Hessian matrix H and mass-weighted Hessian matrix H_mw
         using distance-dependent covalent force constants (GEOM-04).
         If user passes explicit hessian matrix H (3N x 3N), it is used directly.
         """
         n_atoms = len(coords)
+        if len(masses) != n_atoms:
+            raise ValueError(f"Masses length ({len(masses)}) does not match coordinates length ({n_atoms})")
+        if coords.shape != (n_atoms, 3):
+            raise ValueError(f"Coordinates shape {coords.shape} must be (N, 3)")
+            
         n_dof = 3 * n_atoms
         sqrt_m = np.sqrt(masses)
 
@@ -108,9 +117,9 @@ class ConformationalSearchGenerator:
         return H, H_mw
 
     def compute_normal_modes(
-        self, coords: np.ndarray, masses: np.ndarray, elements: Optional[List[str]] = None,
-        hessian: Optional[np.ndarray] = None
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        self, coords: np.ndarray, masses: np.ndarray, elements: list[str] | None = None,
+        hessian: np.ndarray | None = None
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Computes projected vibrational normal mode frequencies, eigenvectors, and Cartesian Hessian H.
 
@@ -131,10 +140,10 @@ class ConformationalSearchGenerator:
         evecs = evecs[:, idx]
 
         # Convert eigenvalues to approximate cm^-1 frequencies
-        freqs_cm1 = np.sign(evals) * np.sqrt(np.abs(evals)) * 219474.63
+        freqs_cm1 = np.sign(evals) * np.sqrt(np.abs(evals)) * 2720.25
         return freqs_cm1, evecs, H
 
-    def recycle_force_field(self, parent_cartesian_hessian: np.ndarray, iso_masses: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def recycle_force_field(self, parent_cartesian_hessian: np.ndarray, iso_masses: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """
         Isotopologue Force-Field Recycling (mass-weighting parent Cartesian force constants).
         Takes the unweighted Cartesian Hessian (3N x 3N) from the parent species and mass-weights
@@ -157,7 +166,7 @@ class ConformationalSearchGenerator:
         return H_mw_iso, parent_cartesian_hessian
 
     def compute_heavy_atom_rmsd(
-        self, coords1: np.ndarray, coords2: np.ndarray, elements: List[str]
+        self, coords1: np.ndarray, coords2: np.ndarray, elements: list[str]
     ) -> float:
         """Computes heavy-atom (Z > 1) Kabsch RMSD between two geometries."""
         heavy_idx = [i for i, el in enumerate(elements) if el.upper() not in ['H', 'D', '1H', '2H']]
@@ -182,10 +191,10 @@ class ConformationalSearchGenerator:
         return rmsd
 
     def generate_lms_conformers(
-        self, ref_coords: np.ndarray, elements: List[str], masses: Optional[np.ndarray] = None,
+        self, ref_coords: np.ndarray, elements: list[str], masses: np.ndarray | None = None,
         n_conformers: int = 20, max_energy_window_kcal: float = 5.0,
-        rmsd_threshold_ang: float = 0.5, hessian: Optional[np.ndarray] = None
-    ) -> List[Dict]:
+        rmsd_threshold_ang: float = 0.5, hessian: np.ndarray | None = None
+    ) -> list[dict]:
         """
         Generates Low-Mode Sampling trial conformers with heavy-atom RMSD clustering and energy window filtering.
         Harmonic strain energy computed via E_strain = 0.5 * dx^T * H * dx (GEOM-04).
@@ -203,7 +212,8 @@ class ConformationalSearchGenerator:
         # Select low-frequency modes (< 300 cm^-1, ignoring first 6 zero modes)
         low_mode_idx = [i for i, f in enumerate(freqs) if 10.0 < abs(f) < 300.0]
         if len(low_mode_idx) == 0:
-            low_mode_idx = list(range(6, min(12, len(freqs))))
+            n_trans_rot = 6 if len(freqs) > 6 else (5 if len(freqs) == 6 else len(freqs))
+            low_mode_idx = list(range(n_trans_rot, min(12, len(freqs))))
 
         sqrt_m = np.sqrt(masses)
         raw_conformers = []
@@ -218,7 +228,10 @@ class ConformationalSearchGenerator:
 
             trial_coords = ref_coords + disp
             # Align to Eckart frame
-            aligned_trial, _, rot_res = self.eckart_aligner.align_eckart_frame(ref_coords, trial_coords, masses)
+            try:
+                aligned_trial, _, rot_res = self.eckart_aligner.align_eckart_frame(ref_coords, trial_coords, masses)
+            except (EckartSingularityError, EckartAlignmentError):
+                continue
 
             # Harmonic strain energy E_strain = 0.5 * dx^T * H * dx in kcal/mol (GEOM-04)
             dx = (aligned_trial - ref_coords).reshape(-1)
@@ -256,8 +269,8 @@ class ConformationalSearchGenerator:
 
         return clustered_conformers
 
-    def export_fit_provenance(self, output_dir: str = ".") -> str:
-        """Serializes fit_provenance.json metadata with Section 12.5 [M]/[D]/[E] provenance tags (Suggestion 45 / GEOM-05)."""
+    def export_fit_provenance(self, output_dir: str = ".", energy_window_kcal_mol: float = 5.0, rmsd_threshold_angstrom: float = 0.5) -> str:
+        """Serializes fit_provenance.json metadata with Section 12.5 [M]/[D]/[E] provenance tags."""
         os.makedirs(output_dir, exist_ok=True)
         prov = {
             "module": "CoChem-GEOM",
@@ -279,8 +292,8 @@ class ConformationalSearchGenerator:
                 "re_semi_empirical": "[D]"
             },
             "sampling_parameters": {
-                "energy_window_kcal_mol": {"value": 5.0, "tag": "[E]"},
-                "rmsd_threshold_angstrom": {"value": 0.5, "tag": "[E]"},
+                "energy_window_kcal_mol": {"value": energy_window_kcal_mol, "tag": "[E]"},
+                "rmsd_threshold_angstrom": {"value": rmsd_threshold_angstrom, "tag": "[E]"},
                 "spring_force_constant_k0": {"value": 0.5, "tag": "[E]"}
             },
             "environment_hash": hashlib.sha256(f"CoChem-GEOM-{self.seed}".encode()).hexdigest()

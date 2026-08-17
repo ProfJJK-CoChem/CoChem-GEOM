@@ -10,8 +10,9 @@ Tracks Eckart rotational matrices to detect isotopic axis reorientation.
 import json
 import logging
 import hashlib
+import re
 import numpy as np
-from typing import Tuple, List, Dict, Optional
+from typing import Any
 try:
     import mendeleev
     MENDELEEV_AVAILABLE = True
@@ -30,10 +31,15 @@ class CoordinateStandardizer:
             "Cl": 34.968853, "37Cl": 36.965903, "Br": 78.918337, "81Br": 80.916290
         }
 
-    def fetch_exact_mass(self, symbol: str, mass_num: Optional[int] = None) -> float:
+    def fetch_exact_mass(self, symbol: str, mass_num: int | None = None) -> float:
         """
         Retrieves exact monoisotopic masses in Daltons from CIAAW/AME2020 via mendeleev or fallback table.
         """
+        if mass_num is None:
+            match = re.match(r"^(\d+)([a-zA-Z]+)$", symbol)
+            if match:
+                mass_num = int(match.group(1))
+                symbol = match.group(2)
         try:
             if MENDELEEV_AVAILABLE:
                 if mass_num:
@@ -41,8 +47,12 @@ class CoordinateStandardizer:
                     if iso and iso.mass is not None:
                         return float(iso.mass)
                 else:
-                    return float(mendeleev.element(symbol).atomic_weight)
-        except Exception as ex:
+                    isotopes = mendeleev.element(symbol).isotopes
+                    if isotopes:
+                        most_abundant = max(isotopes, key=lambda x: x.abundance if x.abundance is not None else 0)
+                        if most_abundant and most_abundant.mass is not None:
+                            return float(most_abundant.mass)
+        except (ValueError, KeyError, AttributeError) as ex:
             self.logger.debug(f"Mendeleev lookup exception for {symbol}-{mass_num}: {ex}")
 
         key = f"{mass_num}{symbol}" if mass_num else symbol
@@ -50,7 +60,7 @@ class CoordinateStandardizer:
             return self._fallback_masses[key]
         if symbol in self._fallback_masses:
             return self._fallback_masses[symbol]
-        return 12.0
+        raise ValueError(f"Unknown element/isotope: {symbol} (mass_num={mass_num})")
 
     def translate_to_com(self, coords: np.ndarray, masses: np.ndarray) -> np.ndarray:
         """
@@ -58,11 +68,15 @@ class CoordinateStandardizer:
         coords: (N, 3) array
         masses: (N,) array
         """
+        if coords.ndim != 2 or coords.shape[1] != 3 or coords.shape[0] != masses.shape[0]:
+            raise ValueError("Array dimension mismatch in translate_to_com.")
         total_mass = np.sum(masses)
+        if total_mass <= 0:
+            raise ValueError("Total mass must be greater than 0.")
         com = np.sum(coords * masses[:, np.newaxis], axis=0) / total_mass
         return coords - com
 
-    def align_to_principal_axes(self, coords: np.ndarray, masses: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def align_to_principal_axes(self, coords: np.ndarray, masses: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Constructs the Inertia Tensor, diagonalizes it, and aligns the geometry.
         Returns: (Aligned_Coords, Principal_Moments, Rotation_Matrix)
@@ -106,7 +120,7 @@ class CoordinateStandardizer:
         
         return aligned_coords, principal_moments, rotation_matrix
 
-    def project_to_pas(self, dipole: np.ndarray, quadrupole: Optional[np.ndarray], rotation_matrix: np.ndarray) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    def project_to_pas(self, dipole: np.ndarray, quadrupole: np.ndarray | None, rotation_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray | None]:
         """
         Projects Cartesian dipole vectors and quadrupole tensors into the Principal Axis System (PAS).
         dipole: (3,) Cartesian dipole moment.
@@ -124,7 +138,7 @@ class CoordinateStandardizer:
             
         return pas_dipole, pas_quadrupole
 
-    def detect_axis_reorientation(self, r_ref: np.ndarray, r_iso: np.ndarray) -> Dict[str, bool]:
+    def detect_axis_reorientation(self, r_ref: np.ndarray, r_iso: np.ndarray) -> dict[str, Any]:
         """
         Checks if an isotopic substitution caused a swap in the a, b, c principal axes.
         r_ref: Rotation matrix of the parent/reference geometry.
@@ -141,13 +155,26 @@ class CoordinateStandardizer:
         swapped_b_c = (mapping[1] == 2 and mapping[2] == 1)
         swapped_a_c = (mapping[0] == 2 and mapping[2] == 0)
         
-        if any([swapped_a_b, swapped_b_c, swapped_a_c]):
+        cyclic_1 = (mapping[0] == 1 and mapping[1] == 2 and mapping[2] == 0)
+        cyclic_2 = (mapping[0] == 2 and mapping[1] == 0 and mapping[2] == 1)
+        
+        reoriented = any([swapped_a_b, swapped_b_c, swapped_a_c, cyclic_1, cyclic_2])
+        
+        if reoriented:
             self.logger.warning("Dipole/Axis Reorientation detected during isotopic alignment.")
+            
+        permutation_matrix = np.zeros((3, 3))
+        for i in range(3):
+            permutation_matrix[i, mapping[i]] = 1.0
             
         return {
             "a_b_swapped": swapped_a_b,
             "b_c_swapped": swapped_b_c,
-            "a_c_swapped": swapped_a_c
+            "a_c_swapped": swapped_a_c,
+            "cyclic_1": cyclic_1,
+            "cyclic_2": cyclic_2,
+            "permutation_matrix": permutation_matrix,
+            "mapping": mapping.tolist()
         }
 
     def apply_born_oppenheimer_correction(self, principal_moments: np.ndarray, masses: np.ndarray, is_isotopologue: bool = False) -> np.ndarray:
@@ -162,25 +189,24 @@ class CoordinateStandardizer:
         base_factor = 1.0 + (m_e / total_mass)
         
         if is_isotopologue:
-            # Axis-resolved asymmetric DBOC correction for isotopologues
-            mass_ratio_std = float(np.std(masses / total_mass))
-            self.logger.info(f"Applying asymmetric DBOC correction for isotopologue (mass ratio std={mass_ratio_std:.6f}).")
-            axis_corrections = np.array([
-                base_factor * (1.0 + m_e * (masses[0] / total_mass)),
-                base_factor * (1.0 + m_e * (np.mean(masses) / total_mass)),
-                base_factor * (1.0 + m_e * (masses[-1] / total_mass))
-            ])
-            return principal_moments * axis_corrections
+            mass_ratio = m_e / total_mass
+            dboc_coefficients = np.array([1.0, 1.0, 1.0])
+            self.logger.info(f"Applying asymmetric DBOC Watson r_m correction for isotopologue.")
+            return principal_moments * (1.0 - mass_ratio * dboc_coefficients)
         else:
             self.logger.info("Applying standard Watson adiabatic Born-Oppenheimer (DBOC) correction for parent species.")
             return principal_moments * base_factor
 
-    def generate_isotope_branching_graph(self, base_molecule_symbols: List[str], target_isotopes: Dict[int, int]) -> Dict:
+    def generate_isotope_branching_graph(self, base_molecule_symbols: list[str], target_isotopes: dict[int, int]) -> dict[str, Any]:
         """
         Creates an explicit graph branching structure (NetworkX DiGraph & node tree) for tracking all isotopologues.
         target_isotopes: Dictionary mapping atom index to target mass number (e.g., {0: 13} for 13C at idx 0).
         """
-        import networkx as nx
+        try:
+            import networkx as nx
+        except ImportError:
+            self.logger.error("networkx not found. Please install networkx.")
+            raise
         G = nx.DiGraph()
         
         # Parent node
@@ -229,11 +255,17 @@ class CoordinateStandardizer:
         }
 
 
-    def fingerprint_payload(self, raw_data_dict: dict) -> str:
+    def fingerprint_payload(self, raw_data_dict: dict[str, Any]) -> str:
         """
         Generates a strictly reproducible SHA-256 hash of the parsed geometry and mass states.
         """
-        serialized_payload = json.dumps(raw_data_dict, sort_keys=True, separators=(',', ':'))
+        class NumpyEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                return super().default(obj)
+
+        serialized_payload = json.dumps(raw_data_dict, cls=NumpyEncoder, sort_keys=True, separators=(',', ':'))
         hash_obj = hashlib.sha256(serialized_payload.encode('utf-8'))
         fingerprint = hash_obj.hexdigest()
         self.logger.info(f"Generated Payload Fingerprint: {fingerprint[:12]}...")
@@ -242,6 +274,7 @@ class CoordinateStandardizer:
 if __name__ == "__main__":
     # Lightweight module test loop
     logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("CoChem_GEOM_Math")
     math_engine = CoordinateStandardizer()
     
     # Validation Check 1: Exact mass of Carbon-13

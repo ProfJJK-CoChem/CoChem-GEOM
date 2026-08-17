@@ -1,7 +1,7 @@
+#!/usr/bin/env python3
 import logging
 logger = logging.getLogger(__name__)
-import hashlib  # SHA-256 artifact provenance tracking
-#!/usr/bin/env python3
+
 """
 CoChem-GEOM (v4.0) - Stage 4.1: UI & HTML Summary Dashboard Generator
 ----------------------------------------------------------------------
@@ -10,19 +10,35 @@ residual distributions, covariance heatmaps, and export triggers.
 """
 
 import os
-import json
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any
 import numpy as np
+
+try:
+    import plotly.graph_objects as go
+except ImportError:
+    go = None
+
+try:
+    import py3Dmol
+except ImportError:
+    py3Dmol = None
+
+try:
+    import ipywidgets as widgets
+    from IPython.display import display
+except ImportError:
+    widgets = None
+    display = None
 
 
 class GEOMReportUIGenerator:
     """Generates standalone HTML and ipywidgets interactive dashboards for CoChem-GEOM."""
 
-    def __init__(self, output_dir: Optional[Path] = None) -> None:
+    def __init__(self, output_dir: Path | None = None) -> None:
         self.output_dir = output_dir or Path(os.environ.get("COCHEM_ARTIFACT_DIR", "."))
 
-    def build_summary_html(self, species_name: str, parameters: Dict[str, float], errors: Dict[str, float], rmsd_mhz: float) -> str:
+    def build_summary_html(self, species_name: str, parameters: dict[str, float], errors: dict[str, float], rmsd_mhz: float) -> str:
         """
         Builds a styled HTML report summary document.
         """
@@ -64,28 +80,78 @@ class GEOMReportUIGenerator:
 </html>
 """
         out_file = self.output_dir / f"{species_name}_geom_summary.html"
-        out_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_file, "w", encoding="utf-8") as f:
-            f.write(html_content)
+        try:
+            out_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_file, "w", encoding="utf-8") as f:
+                f.write(html_content)
+        except OSError as e:
+            logger.error(f"Failed to write summary HTML file {out_file}: {e}")
+            
         return html_content
 
-    def render_jupyter_widget(self, species_name: str, parameters: Dict[str, float]) -> Any:
+    def render_jupyter_widget(self, species_name: str, parameters: dict[str, float]) -> Any:
         """
         Renders an ipywidgets HTML control panel for Jupyter notebook users.
         """
-        try:
-            import ipywidgets as widgets
-            from IPython.display import display
-            
-            items = [widgets.HTML(f"<h3>CoChem-GEOM Dashboard: {species_name}</h3>")]
-            for k, v in parameters.items():
-                items.append(widgets.HTML(f"<b>{k}:</b> {v:.6f}"))
-            panel = widgets.VBox(items)
-            display(panel)
-            return panel
-        except ImportError:
+        if widgets is None or display is None:
             logger.info(f"[CoChem-GEOM UI] {species_name} Parameters: {parameters}")
             return None
+            
+        items = [widgets.HTML(f"<h3>CoChem-GEOM Dashboard: {species_name}</h3>")]
+        for k, v in parameters.items():
+            items.append(widgets.HTML(f"<b>{k}:</b> {v:.6f}"))
+        panel = widgets.VBox(items)
+        display(panel)
+        return panel
+        
+    def render_correlation_heatmap(self, cov_matrix: np.ndarray, param_labels: list[str], threshold: float = 0.85) -> Any:
+        """
+        Renders a correlation heatmap from a covariance matrix using Plotly.
+        Highlights values above the specified threshold.
+        """
+        if go is None:
+            logger.warning("plotly is not installed. Cannot render correlation heatmap.")
+            return None
+            
+        std_devs = np.sqrt(np.diag(cov_matrix))
+        outer_v = np.outer(std_devs, std_devs)
+        # Avoid division by zero
+        with np.errstate(divide='ignore', invalid='ignore'):
+            corr_matrix = np.where(outer_v == 0, 0, cov_matrix / outer_v)
+            
+        text = np.where(np.abs(corr_matrix) >= threshold, np.round(corr_matrix, 2).astype(str), "")
+        
+        fig = go.Figure(data=go.Heatmap(
+            z=corr_matrix,
+            x=param_labels,
+            y=param_labels,
+            colorscale="RdBu",
+            zmin=-1, zmax=1,
+            text=text,
+            texttemplate="%{text}",
+            hoverinfo="z+x+y"
+        ))
+        fig.update_layout(title="Parameter Correlation Heatmap")
+        return fig
+
+    def render_3d_displacement(self, start_xyz: str, end_xyz: str, scale_factor: float = 1.0) -> Any:
+        """
+        Renders an interactive 3D displacement visualization between two XYZ structures using py3Dmol.
+        """
+        if py3Dmol is None:
+            logger.warning("py3Dmol is not installed. Cannot render 3D displacement.")
+            return None
+            
+        view = py3Dmol.view(width=800, height=400)
+        
+        view.addModel(start_xyz, "xyz")
+        view.setStyle({'model': 0}, {'stick': {'color': 'cyan'}, 'sphere': {'radius': 0.3, 'color': 'cyan'}})
+        
+        view.addModel(end_xyz, "xyz")
+        view.setStyle({'model': 1}, {'stick': {'color': 'magenta'}, 'sphere': {'radius': 0.3, 'color': 'magenta'}})
+        
+        view.zoomTo()
+        return view
 
 
 if __name__ == "__main__":
@@ -95,3 +161,4 @@ if __name__ == "__main__":
     html = ui_gen.build_summary_html("Water", sample_params, sample_errs, rmsd_mhz=0.012)
     ui_gen.render_jupyter_widget("Water", sample_params)
     logger.info("UI Summary Dashboard test passed.")
+

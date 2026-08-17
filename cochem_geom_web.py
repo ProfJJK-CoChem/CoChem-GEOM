@@ -49,6 +49,7 @@ if st.button("🚀 Execute Default Pipeline"):
         
         env = os.environ.copy()
         env["COCHEM_TARGET_H5"] = str(artifact_dir / "landscape.h5")
+        env["COCHEM_TARGET_SMILES"] = target_smiles
         
         try:
             # Replaced no-op spoof with actual physical backend orchestrator target

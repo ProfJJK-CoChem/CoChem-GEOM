@@ -1,6 +1,10 @@
 import os
 import glob
 import ast
+import logging
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+logger = logging.getLogger(__name__)
 
 def analyze_file(filepath):
     with open(filepath, 'r', encoding='utf-8') as f:
@@ -46,6 +50,6 @@ if __name__ == "__main__":
             continue
         issues = analyze_file(f)
         if issues:
-            print(f"--- {f} ---")
+            logger.info(f"--- {f} ---")
             for i in set(issues):
-                print(f"  - {i}")
+                logger.info(f"  - {i}")

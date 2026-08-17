@@ -1,7 +1,7 @@
+#!/usr/bin/env python3
 import logging
 logger = logging.getLogger(__name__)
-import hashlib  # SHA-256 artifact provenance tracking
-#!/usr/bin/env python3
+
 """
 CoChem-GEOM (v4.0) - Stage 4.0: LaTeX Report Generator
 -------------------------------------------------------
@@ -12,17 +12,19 @@ rotational constant comparisons, and covariance error bars.
 
 import os
 from pathlib import Path
-from typing import Dict, List, Optional
 import numpy as np
+
+def _escape_latex(text: str) -> str:
+    return str(text).replace("\\", "\\\\").replace("_", "\\_").replace("&", "\\&")
 
 
 class GEOMReportLatexGenerator:
     """Generates LaTeX report tables and document sections for CoChem-GEOM fitting results."""
 
-    def __init__(self, output_dir: Optional[Path] = None) -> None:
-        self.output_dir = output_dir or Path(os.environ.get("COCHEM_ARTIFACT_DIR", "."))
+    def __init__(self, output_dir: Path | str | None = None) -> None:
+        self.output_dir = Path(output_dir) if output_dir else Path(os.environ.get("COCHEM_ARTIFACT_DIR", "."))
 
-    def generate_rotational_constants_table(self, exp_constants: Dict[str, Dict[str, float]], fit_constants: Dict[str, Dict[str, float]]) -> str:
+    def generate_rotational_constants_table(self, exp_constants: dict, fit_constants: dict) -> str:
         """
         Generates LaTeX tabular markup comparing experimental vs fitted rotational constants.
         """
@@ -37,14 +39,26 @@ class GEOMReportLatexGenerator:
         ]
 
         for species_id, exp_dict in exp_constants.items():
+            species_id_esc = _escape_latex(species_id)
             fit_dict = fit_constants.get(species_id, {})
             for param in ["A", "B", "C"]:
                 if param in exp_dict:
-                    val_exp = exp_dict[param]["value"]
-                    err_exp = exp_dict[param].get("uncertainty", 0.0)
-                    val_fit = fit_dict.get(param, {}).get("value", val_exp)
+                    exp_val_obj = exp_dict[param]
+                    if isinstance(exp_val_obj, dict):
+                        val_exp = exp_val_obj.get("value", 0.0)
+                        err_exp = exp_val_obj.get("uncertainty", 0.0)
+                    else:
+                        val_exp = float(exp_val_obj)
+                        err_exp = 0.0
+
+                    fit_val_obj = fit_dict.get(param, val_exp)
+                    if isinstance(fit_val_obj, dict):
+                        val_fit = fit_val_obj.get("value", val_exp)
+                    else:
+                        val_fit = float(fit_val_obj)
+
                     residual_khz = (val_fit - val_exp) * 1000.0
-                    latex.append(f"{species_id} & {param} & {val_exp:.4f} $\\pm$ {err_exp:.4f} & {val_fit:.4f} & {residual_khz:+.2f} \\\\")
+                    latex.append(f"{species_id_esc} & {param} & {val_exp:.4f} $\\pm$ {err_exp:.4f} & {val_fit:.4f} & {residual_khz:+.2f} \\\\")
 
         latex.extend([
             "\\hline\\hline",
@@ -54,7 +68,7 @@ class GEOMReportLatexGenerator:
         ])
         return "\n".join(latex)
 
-    def generate_kraitchman_rs_table(self, rs_coordinates: Dict[str, np.ndarray]) -> str:
+    def generate_kraitchman_rs_table(self, rs_coordinates: dict) -> str:
         """
         Generates LaTeX tabular markup for Kraitchman r_s substitution coordinates.
         """
@@ -69,10 +83,18 @@ class GEOMReportLatexGenerator:
         ]
 
         for atom_name, coords in rs_coordinates.items():
-            a_str = f"{coords[0]:.4f}" if not np.isnan(coords[0]) else "---"
-            b_str = f"{coords[1]:.4f}" if not np.isnan(coords[1]) else "---"
-            c_str = f"{coords[2]:.4f}" if not np.isnan(coords[2]) else "---"
-            latex.append(f"{atom_name} & {a_str} & {b_str} & {c_str} \\\\")
+            atom_name_esc = _escape_latex(atom_name)
+            def format_coord(c):
+                if np.iscomplexobj(c) or isinstance(c, complex):
+                    if np.isnan(np.abs(c)): return "---"
+                    return f"{c.real:.4f}+{c.imag:.4f}i"
+                else:
+                    if np.isnan(c): return "---"
+                    return f"{np.abs(c):.4f}"
+            a_str = format_coord(coords[0])
+            b_str = format_coord(coords[1])
+            c_str = format_coord(coords[2])
+            latex.append(f"{atom_name_esc} & {a_str} & {b_str} & {c_str} \\\\")
 
         latex.extend([
             "\\hline\\hline",
@@ -82,13 +104,26 @@ class GEOMReportLatexGenerator:
         ])
         return "\n".join(latex)
 
+    def generate_geometric_parameters_table(self) -> str:
+        """
+        Placeholder for generating geometric parameters table.
+        """
+        return "% Geometric parameters table placeholder\n"
+
+    def generate_covariance_table(self) -> str:
+        """
+        Placeholder for generating covariance table.
+        """
+        return "% Covariance table placeholder\n"
+
     def generate_full_manuscript_section(self, species_name: str, rot_table: str, rs_table: str, symmetry: str = "C1") -> str:
         """
         Assembles a full LaTeX manuscript section summarizing geometric determination.
         """
+        species_name_esc = _escape_latex(species_name)
         doc = [
-            f"\\section{{Semi-Experimental Structure Determination: {species_name}}}",
-            f"Spectroscopic fitting for \\textbf{{{species_name}}} was executed under point-group symmetry \\texttt{{{symmetry}}}.",
+            f"\\section{{Semi-Experimental Structure Determination: {species_name_esc}}}",
+            f"Spectroscopic fitting for \\textbf{{{species_name_esc}}} was executed under point-group symmetry \\texttt{{{symmetry}}}.",
             "",
             rot_table,
             "",

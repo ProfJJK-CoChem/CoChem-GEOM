@@ -1,0 +1,15 @@
+! RHF CCSD cc-pVTZ VeryTightSCF TightOpt NumGrad NumFreq
+%maxcore 2000
+%mdci
+  STol 1.0e-8
+end
+%geom
+  TolMaxG 5.0e-6
+  TolRMSG 2.0e-6
+  EnForceStrictConvergence true
+end
+* xyz 0 1
+  O      0.00000000     0.00000000     0.11964252
+  H      0.00000000     0.75367304    -0.47032126
+  H      0.00000000    -0.75367304    -0.47032126
+*

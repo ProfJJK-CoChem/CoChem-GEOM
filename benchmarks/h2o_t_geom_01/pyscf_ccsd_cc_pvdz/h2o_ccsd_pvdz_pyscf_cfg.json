@@ -1,0 +1,35 @@
+{
+  "symbols": [
+    "O",
+    "H",
+    "H"
+  ],
+  "coords_ang": [
+    [
+      0.0,
+      0.0,
+      0.117
+    ],
+    [
+      0.0,
+      0.757,
+      -0.469
+    ],
+    [
+      0.0,
+      -0.757,
+      -0.469
+    ]
+  ],
+  "masses_u": [
+    15.99491461957,
+    1.00782503223,
+    1.00782503223
+  ],
+  "basis": "cc-pVDZ",
+  "charge": 0,
+  "multiplicity": 1,
+  "log_path": "/mnt/d/__CoChem/GitHub-Repo/CoChem-GEOM/benchmarks/h2o_t_geom_01/pyscf_ccsd_cc_pvdz/h2o_ccsd_pvdz.log",
+  "xyz_path": "/mnt/d/__CoChem/GitHub-Repo/CoChem-GEOM/benchmarks/h2o_t_geom_01/pyscf_ccsd_cc_pvdz/h2o_ccsd_pvdz.xyz",
+  "res_path": "/mnt/d/__CoChem/GitHub-Repo/CoChem-GEOM/benchmarks/h2o_t_geom_01/pyscf_ccsd_cc_pvdz/h2o_ccsd_pvdz_result.json"
+}

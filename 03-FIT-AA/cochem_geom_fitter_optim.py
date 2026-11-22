@@ -1,286 +1,189 @@
 #!/usr/bin/env python3
-"""
-CoChem-GEOM (v4.0) - Stage 3.2: GPU Multi-Seed Optimizer & MCMC Error Prop
---------------------------------------------------------------------------
-Core non-linear fitting physics engine. Evaluates multi-seed optimizations
-to bypass local minima. Implements analytical Kraitchman substitution math,
-Jacobian condition-number thresholding with SVD fallbacks, and strict
-covariance error propagation.
+"""CoChem-GEOM Stage 3.2: Honest Kraitchman r_s & Weighted Multi-Seed Optimizer.
+
+Fixes:
+- Preserves negative Kraitchman r_s^2 as explicit `imaginary_axis=True` Costain
+  flags (never silently clips negative r_s^2 to 0.0).
+- Passes `experimental_weights` directly into `scipy.optimize.least_squares`
+  weighted residuals AND `J^T W J` covariance estimation.
 """
 
+from __future__ import annotations
+
 import logging
+from collections.abc import Callable
+from typing import Any
+
 import numpy as np
 import scipy.optimize
-import scipy.sparse as sparse
-from typing import Callable, Dict, Tuple, Optional, List
+
+from cochem_geom.kraitchman import KraitchmanAtomResult, solve_kraitchman_from_moments
 
 logger = logging.getLogger(__name__)
 
 
 class KraitchmanEngine:
-    """Computes exact substitution structures (r_s) via Kraitchman's Equations."""
-    
+    """Honest Kraitchman substitution solver preserving imaginary axes."""
+
     def __init__(self) -> None:
         self.logger = logging.getLogger("CoChem_GEOM_Kraitchman")
 
-    def fit_rs_kraitchman(self, parent_I: np.ndarray, iso_I: np.ndarray, M_parent: float, delta_m: float, return_report: bool = False) -> np.ndarray:
-        """
-        Derives the |a|, |b|, |c| coordinates of the substituted atom using Kraitchman's Equations.
-        Implements Kraitchman condition number traps for small planar moments of inertia & near-spherical limits.
-        
-        parent_I: (3,) array of parent moments of inertia (Ia, Ib, Ic) in amu*A^2.
-        iso_I: (3,) array of isotopologue moments of inertia.
-        M_parent: Total exact mass of the parent molecule.
-        delta_m: Mass difference of the substitution.
-        
-        Returns: (3,) array of absolute principal coordinates |a|, |b|, |c|.
-        """
-        mu = (M_parent * delta_m) / (M_parent + delta_m)
-
-        # Planar moments: P_g = 0.5 * (-I_g + I_g' + I_g'')
-        P_parent = np.array([
-            0.5 * (-parent_I[0] + parent_I[1] + parent_I[2]),
-            0.5 * (parent_I[0] - parent_I[1] + parent_I[2]),
-            0.5 * (parent_I[0] + parent_I[1] - parent_I[2])
-        ])
-
-        P_iso = np.array([
-            0.5 * (-iso_I[0] + iso_I[1] + iso_I[2]),
-            0.5 * (iso_I[0] - iso_I[1] + iso_I[2]),
-            0.5 * (iso_I[0] + iso_I[1] - iso_I[2])
-        ])
-
-        delta_P = P_iso - P_parent
-        coords = np.zeros(3)
-
-        # Kraitchman transformation denominator matrix & condition number check
-        denom_mat = np.array([
-            [1.0, (parent_I[0] - parent_I[1]) if abs(parent_I[0] - parent_I[1]) > 1e-6 else 1e-6, (parent_I[0] - parent_I[2]) if abs(parent_I[0] - parent_I[2]) > 1e-6 else 1e-6],
-            [(parent_I[1] - parent_I[0]) if abs(parent_I[1] - parent_I[0]) > 1e-6 else 1e-6, 1.0, (parent_I[1] - parent_I[2]) if abs(parent_I[1] - parent_I[2]) > 1e-6 else 1e-6],
-            [(parent_I[2] - parent_I[0]) if abs(parent_I[2] - parent_I[0]) > 1e-6 else 1e-6, (parent_I[2] - parent_I[1]) if abs(parent_I[2] - parent_I[1]) > 1e-6 else 1e-6, 1.0]
-        ])
-        
-        cond_k = float(np.linalg.cond(denom_mat))
-        
-        for i in range(3):
-            j = (i + 1) % 3
-            k = (i + 2) % 3
-            term_j = 1.0 + delta_P[j] / denom_mat[i, j]
-            term_k = 1.0 + delta_P[k] / denom_mat[i, k]
-            val = (delta_P[i] / mu) * term_j * term_k
-            
-            if val < 0.0:
-                self.logger.warning(f"Axis {['a','b','c'][i]} yielded negative coordinate squared ({val:.4f}). Pinning to 0.0.")
-                coords[i] = 0.0
-            else:
-                coords[i] = np.sqrt(val)
-
+    def fit_rs_kraitchman(
+        self,
+        parent_I: np.ndarray,
+        iso_I: np.ndarray,
+        M_parent: float,
+        delta_m: float,
+        return_report: bool = False,
+        atom_label: str = "X",
+    ) -> KraitchmanAtomResult | dict[str, Any]:
+        result = solve_kraitchman_from_moments(
+            parent_moments_u_a2=parent_I,
+            iso_moments_u_a2=iso_I,
+            parent_mass_u=M_parent,
+            delta_mass_u=delta_m,
+            atom_label=atom_label,
+        )
         if return_report:
             return {
-                "coordinates": coords,
-                "condition_number": cond_k
+                "result": result,
+                "coordinates": [result.axes[ax].abs_coord_angstrom for ax in ("a", "b", "c")],
+                "rs_squared": [result.axes[ax].rs_squared_a2 for ax in ("a", "b", "c")],
+                "imaginary_axis": {ax: result.axes[ax].imaginary_axis for ax in ("a", "b", "c")},
+                "condition_number": result.condition_number,
             }
-            
-        return coords
-
+        return result
 
 
 class MultiSeedOptimizer:
-    """Executes multi-start non-linear parameter fitting with condition fallbacks."""
-    
+    """Multi-start weighted nonlinear least-squares optimizer with SVD covariance diagnostics."""
+
     def __init__(self) -> None:
         self.logger = logging.getLogger("CoChem_GEOM_Optimizer")
 
-    def _check_divergence(self, coords: np.ndarray, elements: Optional[List[str]] = None) -> bool:
-        """
-        Dynamic physical constraint guard (Suggestion 41).
-        Replaces hardcoded < 0.5 A / > 5.0 A bounds with dynamic covalent and vdw radii bounds.
-        """
+    def _check_divergence(self, coords: np.ndarray, elements: list[str] | None = None) -> bool:
         from scipy.spatial.distance import pdist, squareform
+
         n_atoms = len(coords)
         if n_atoms < 2:
             return False
-            
         distances = pdist(coords)
         dist_matrix = squareform(distances)
-        
-        # Element radii table (covalent, vdw in Angstroms)
         radii_table = {
-            'H': (0.31, 1.20), 'HE': (0.28, 1.40), 'LI': (1.28, 1.82), 'BE': (0.96, 1.53),
-            'B': (0.84, 1.92), 'C': (0.76, 1.70), 'N': (0.71, 1.55), 'O': (0.66, 1.52),
-            'F': (0.57, 1.47), 'NE': (0.58, 1.54), 'NA': (1.66, 2.27), 'MG': (1.41, 1.73),
-            'AL': (1.21, 1.84), 'SI': (1.11, 2.10), 'P': (1.07, 1.80), 'S': (1.05, 1.80),
-            'CL': (1.02, 1.75), 'AR': (1.06, 1.88), 'BR': (1.20, 1.85), 'I': (1.39, 1.98)
+            "H": (0.31, 1.20), "HE": (0.28, 1.40), "LI": (1.28, 1.82), "BE": (0.96, 1.53),
+            "B": (0.84, 1.92), "C": (0.76, 1.70), "N": (0.71, 1.55), "O": (0.66, 1.52),
+            "F": (0.57, 1.47), "NE": (0.58, 1.54), "NA": (1.66, 2.27), "MG": (1.41, 1.73),
+            "AL": (1.21, 1.84), "SI": (1.11, 2.10), "P": (1.07, 1.80), "S": (1.05, 1.80),
+            "CL": (1.02, 1.75), "AR": (1.06, 1.88), "BR": (1.20, 1.85), "I": (1.39, 1.98),
         }
-        
-        # Max span of geometry
-        span = float(np.max(pdist(coords))) if len(coords) > 1 else 5.0
+        span = float(np.max(distances)) if len(distances) > 0 else 5.0
         max_allowed_dist = max(15.0, 2.5 * span)
-
         for i in range(n_atoms):
-            elem_i = elements[i].upper() if elements and i < len(elements) else 'C'
-            cov_i, vdw_i = radii_table.get(elem_i, (0.77, 1.70))
+            elem_i = elements[i].upper() if elements and i < len(elements) else "C"
+            cov_i, _ = radii_table.get(elem_i, (0.77, 1.70))
             for j in range(i + 1, n_atoms):
-                elem_j = elements[j].upper() if elements and j < len(elements) else 'C'
-                cov_j, vdw_j = radii_table.get(elem_j, (0.77, 1.70))
-                
-                # Dynamic lower bound: 0.45 * sum of covalent radii (prevents atomic overlap)
-                min_allowed = 0.45 * (cov_i + cov_j)
-                d = dist_matrix[i, j]
-                if d < min_allowed or d > max_allowed_dist:
+                elem_j = elements[j].upper() if elements and j < len(elements) else "C"
+                cov_j, _ = radii_table.get(elem_j, (0.77, 1.70))
+                if dist_matrix[i, j] < 0.45 * (cov_i + cov_j) or dist_matrix[i, j] > max_allowed_dist:
                     return True
-                    
         return False
 
-    def _generate_seeds(self, bounds: Tuple[List[float], List[float]], n_seeds: int = 50, seed: Optional[int] = None) -> np.ndarray:
-        """Generates Latin Hypercube Sampled (LHS) seeds within dynamic bounds with configurable seed (MOCK-08 / Suggestion 40)."""
-        lower, upper = np.array(bounds[0]), np.array(bounds[1])
-        dim = len(lower)
-        try:
-            from scipy.stats.qmc import LatinHypercube
-            sampler = LatinHypercube(d=dim, seed=seed)
-            unit_samples = sampler.random(n=n_seeds)
-            return lower + unit_samples * (upper - lower)
-        except ImportError:
-            # Low-discrepancy deterministic Halton sequence fallback
-            grid_points = []
-            primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71]
-            offset = 0 if seed is None else seed % 100
-            for i in range(n_seeds):
-                point = []
-                for d in range(dim):
-                    base = primes[d % len(primes)]
-                    f = 1.0
-                    r = 0.0
-                    i_val = i + 1 + offset
-                    while i_val > 0:
-                        f /= base
-                        r += f * (i_val % base)
-                        i_val //= base
-                    point.append(lower[d] + r * (upper[d] - lower[d]))
-                grid_points.append(point)
-            return np.array(grid_points)
+    def _generate_seeds(
+        self,
+        bounds: tuple[list[float], list[float]],
+        n_seeds: int = 50,
+        seed: int | None = None,
+    ) -> np.ndarray:
+        lower, upper = np.asarray(bounds[0], dtype=np.float64), np.asarray(bounds[1], dtype=np.float64)
+        from scipy.stats.qmc import LatinHypercube
 
-    def evaluate_jacobian_covariance(self, J: np.ndarray, weights: np.ndarray) -> Tuple[np.ndarray, bool, Dict]:
-        """
-        Computes the Variance-Covariance matrix: Sigma = (J^T W J)^-1
-        Monitors condition number, flags truncated singular values, and outputs unconstrained variance components.
-        """
-        W = np.diag(weights)
-        Hessian_approx = J.T @ W @ J
-        
-        cond_number = np.linalg.cond(Hessian_approx)
-        self.logger.debug(f"Jacobian Condition Number: {cond_number:.2e}")
-        
-        U, s, Vt = np.linalg.svd(Hessian_approx)
-        truncated_mask = s / max(s[0], 1e-12) < 1e-4
+        sampler = LatinHypercube(d=len(lower), seed=seed)
+        return lower + sampler.random(n=n_seeds) * (upper - lower)
+
+    def evaluate_jacobian_covariance(
+        self, J: np.ndarray, weights: np.ndarray
+    ) -> tuple[np.ndarray, bool, dict[str, Any]]:
+        w = np.asarray(weights, dtype=np.float64)
+        if np.any(w <= 0.0) or not np.all(np.isfinite(w)):
+            raise ValueError("All experimental weights must be finite and strictly positive.")
+        hessian_approx = J.T @ np.diag(w) @ J
+        cond_number = float(np.linalg.cond(hessian_approx))
+        _, s, _ = np.linalg.svd(hessian_approx)
+        truncated_mask = s / max(float(s[0]), 1e-12) < 1e-4
         truncated_count = int(np.sum(truncated_mask))
-        
-        used_svd = False
-        if cond_number > 1e5 or truncated_count > 0:
-            self.logger.warning(f"Ill-conditioned Jacobian (cond={cond_number:.2e}, truncated={truncated_count}). Falling back to SVD pseudo-inverse.")
-            covariance = np.linalg.pinv(Hessian_approx, rcond=1e-4)
-            used_svd = True
-        else:
-            covariance = np.linalg.inv(Hessian_approx)
-
+        used_svd = bool(cond_number > 1e5 or truncated_count > 0)
+        covariance = (
+            np.linalg.pinv(hessian_approx, rcond=1e-4)
+            if used_svd
+            else np.linalg.inv(hessian_approx)
+        )
         svd_report = {
-            "condition_number": float(cond_number),
+            "condition_number": cond_number,
             "singular_values": s.tolist(),
             "truncated_components_count": truncated_count,
-            "unconstrained_variance_flag": used_svd
+            "unconstrained_variance_flag": used_svd,
         }
-            
         return covariance, used_svd, svd_report
 
-    def execute_fit(self, 
-                    objective_fn: Callable,
-                    jacobian_fn: Callable,
-                    bounds: Tuple[List[float], List[float]],
-                    experimental_weights: np.ndarray,
-                    n_seeds: int = 50) -> Dict:
-        """
-        Executes global multi-seed optimization using LHS sampling and SVD error reporting.
-        """
-        seeds = self._generate_seeds(bounds, n_seeds=n_seeds)
+    def execute_fit(
+        self,
+        objective_fn: Callable[[np.ndarray], np.ndarray],
+        jacobian_fn: Callable[[np.ndarray], np.ndarray] | str,
+        bounds: tuple[list[float], list[float]],
+        experimental_weights: np.ndarray,
+        n_seeds: int = 50,
+        seed: int | None = 42,
+    ) -> dict[str, Any]:
+        w = np.asarray(experimental_weights, dtype=np.float64)
+        if np.any(w <= 0.0) or not np.all(np.isfinite(w)):
+            raise ValueError("experimental_weights must be finite and strictly positive.")
+        sqrt_w = np.sqrt(w)
+
+        seeds = self._generate_seeds(bounds, n_seeds=n_seeds, seed=seed)
         best_cost = np.inf
         best_seed = seeds[0]
-        
-        self.logger.info(f"Evaluating {n_seeds} LHS seeds to establish global basin...")
-        
-        for seed in seeds:
+        for s_vec in seeds:
             try:
-                res = objective_fn(seed)
-                cost = np.sum((res ** 2) * experimental_weights)
+                res = np.asarray(objective_fn(s_vec), dtype=np.float64)
+                cost = float(np.sum((res ** 2) * w))
                 if cost < best_cost:
                     best_cost = cost
-                    best_seed = seed
-            except Exception as e:
-                self.logger.warning(f"Objective evaluation failed for seed {seed}: {e}")
+                    best_seed = s_vec
+            except Exception:
                 continue
 
-        self.logger.info("Global basin identified. Initiating Trust-Region Reflective polish.")
-        
-        result = scipy.optimize.least_squares(
-            fun=objective_fn,
-            x0=best_seed,
-            jac=jacobian_fn,
-            bounds=bounds,
-            method='trf',
-            x_scale='jac',
-            loss='linear',
-            tr_solver='exact'
-        )
-        
-        if not result.success:
-            self.logger.error(f"TRF Optimization failed to converge: {result.message}")
-            raise RuntimeError("Geometry fitter diverged.")
-            
-        J_final = result.jac
-        covariance, svd_triggered, svd_report = self.evaluate_jacobian_covariance(J_final, experimental_weights)
-        standard_errors = np.sqrt(np.abs(np.diag(covariance)))
+        def weighted_obj(p: np.ndarray) -> np.ndarray:
+            return sqrt_w * np.asarray(objective_fn(p), dtype=np.float64)
 
-        self.logger.info("Optimization converged successfully.")
-        
+        if callable(jacobian_fn):
+            def weighted_jac(p: np.ndarray) -> np.ndarray:
+                return sqrt_w[:, np.newaxis] * np.asarray(jacobian_fn(p), dtype=np.float64)
+            jac_arg: Any = weighted_jac
+        else:
+            jac_arg = jacobian_fn
+
+        result = scipy.optimize.least_squares(
+            fun=weighted_obj,
+            x0=best_seed,
+            jac=jac_arg,
+            bounds=bounds,
+            method="trf",
+            x_scale="jac",
+            loss="linear",
+            tr_solver="exact",
+        )
+        if not result.success:
+            raise RuntimeError(f"Geometry fitter diverged: {result.message}")
+
+        j_unweighted = np.asarray(result.jac, dtype=np.float64) / sqrt_w[:, np.newaxis]
+        covariance, svd_triggered, svd_report = self.evaluate_jacobian_covariance(j_unweighted, w)
+        standard_errors = np.sqrt(np.maximum(np.diag(covariance), 0.0))
         return {
             "converged_parameters": result.x,
             "standard_errors": standard_errors,
             "covariance_matrix": covariance,
             "svd_fallback_used": svd_triggered,
             "svd_report": svd_report,
-            "cost": result.cost,
-            "optimality": result.optimality
+            "cost": float(result.cost),
+            "optimality": float(result.optimality),
         }
-
-if __name__ == "__main__":
-    # Lightweight module test loop
-    logging.basicConfig(level=logging.DEBUG)
-    
-    # 1. Test Kraitchman
-    kraitchman = KraitchmanEngine()
-    parent = np.array([10.0, 50.0, 60.0]) # Planar
-    iso = np.array([10.0, 52.0, 62.0])    # Substituted
-    coords = kraitchman.fit_rs_kraitchman(parent, iso, M_parent=50.0, delta_m=1.003)
-    logger.info(f"Test Kraitchman Coordinates |a, b, c|: {coords}")
-    
-    # 2. Test Optimizer SVD Fallback
-    opt = MultiSeedOptimizer()
-    
-    # Test an ill-conditioned system
-    # y = x1 + x2 (Perfectly correlated parameters, infinite condition number)
-    test_weights = np.ones(1)
-    
-    def test_obj(p) -> np.ndarray: return np.array([p[0] + p[1] - 5.0])
-    def test_jac(p) -> np.ndarray: return np.array([[1.0, 1.0]])
-    
-    res = opt.execute_fit(
-        objective_fn=test_obj,
-        jacobian_fn=test_jac,
-        bounds=([-10.0, -10.0], [10.0, 10.0]),
-        experimental_weights=test_weights,
-        n_seeds=10
-    )
-    
-    logger.info(f"Test SVD Fallback Converged Params: {res['converged_parameters']}")
-    assert res['svd_fallback_used'] is True, "SVD Fallback failed to trigger on singular Jacobian."
-    logger.info("All mathematical safeguards validated successfully.")

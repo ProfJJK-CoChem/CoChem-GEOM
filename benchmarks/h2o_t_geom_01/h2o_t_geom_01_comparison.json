@@ -1,0 +1,370 @@
+{
+  "schema_version": "cochem.geom.structural-comparison/1",
+  "molecule": "H2O",
+  "symmetry": "C2v",
+  "codata_rotational_factor_mhz_u_a2": 505379.008435,
+  "electronic_g_tensor_correction": null,
+  "columns": {
+    "r_e_ccsd_cc_pvtz_orca": {
+      "status": "VERIFIED",
+      "backend": "orca_ccsd",
+      "engine_version": "ORCA 6.1.1",
+      "method": "CCSD",
+      "basis": "cc-pVTZ",
+      "bond_angstrom": 0.9571203332381985,
+      "angle_deg": 103.89347350732784,
+      "electronic_energy_hartree": -76.324556570992,
+      "t1_diagnostic": 0.006523723,
+      "max_gradient_eh_bohr": 2.322e-07,
+      "n_imaginary_modes": 0,
+      "vibrational_frequencies_cm1": [
+        1678.19,
+        3875.6,
+        3978.72
+      ],
+      "rotational_constants_be_mhz": {
+        "A_e": 811143.9153185437,
+        "B_e": 441403.8815999247,
+        "C_e": 285851.02591583715
+      },
+      "output_file": "D:\\__CoChem\\GitHub-Repo\\CoChem-GEOM\\benchmarks\\h2o_t_geom_01\\orca_ccsd_cc_pvtz\\h2o_ccsd_pvtz.out",
+      "output_sha256": "0ed9f5b81a11f5b16de807e5b9f2b597ddaf5f77f800bdba4223b9f934374bf2",
+      "xyz_file": "D:\\__CoChem\\GitHub-Repo\\CoChem-GEOM\\benchmarks\\h2o_t_geom_01\\orca_ccsd_cc_pvtz\\h2o_ccsd_pvtz.xyz",
+      "xyz_sha256": "664f681b1fc146bc0e114858a9ede60b7678ec0866f87dbe0f88227c9190b018"
+    },
+    "r_e_ccsd_cc_pvdz_pyscf": {
+      "status": "VERIFIED",
+      "backend": "pyscf_ccsd",
+      "engine_version": "PySCF 2.14.0 + geomeTRIC 1.1.1",
+      "method": "CCSD",
+      "basis": "cc-pVDZ",
+      "bond_angstrom": 0.9643520607230514,
+      "angle_deg": 102.2097420049931,
+      "electronic_energy_hartree": -76.24028655143,
+      "t1_diagnostic": 0.00537384,
+      "max_gradient_eh_bohr": 1.2676516725e-07,
+      "n_imaginary_modes": 0,
+      "vibrational_frequencies_cm1": [
+        1697.7905,
+        3849.5656,
+        3954.1488
+      ],
+      "rotational_constants_be_mhz": {
+        "A_e": 770015.6848169983,
+        "B_e": 445082.6302708527,
+        "C_e": 282051.75012804044
+      },
+      "output_file": "D:\\__CoChem\\GitHub-Repo\\CoChem-GEOM\\benchmarks\\h2o_t_geom_01\\pyscf_ccsd_cc_pvdz\\h2o_ccsd_pvdz.log",
+      "output_sha256": "f10846f2f2d871eb19d2c3a0967b98b49ab8ec370c6eee74c5043383ad423ac3",
+      "xyz_file": "D:\\__CoChem\\GitHub-Repo\\CoChem-GEOM\\benchmarks\\h2o_t_geom_01\\pyscf_ccsd_cc_pvdz\\h2o_ccsd_pvdz.xyz",
+      "xyz_sha256": "180d14e0bd52e3d4d5119bfef0e2228bfefac6579db370353288ef1e41b4b215"
+    },
+    "r_s_kraitchman": {
+      "status": "VERIFIED",
+      "bond_angstrom": 0.9655924392492925,
+      "bond_costain_uncertainty_angstrom": 0.014362905000733709,
+      "angle_deg": 103.45035370004554,
+      "angle_costain_uncertainty_deg": 2.152490842271258,
+      "first_moment_residual_u_a": -0.024749682265423623,
+      "imaginary_axes": {
+        "O": [
+          "c"
+        ],
+        "H": [
+          "c"
+        ]
+      },
+      "atoms": {
+        "O": {
+          "atom_label": "O",
+          "reduced_mass_u": 1.803543709695986,
+          "parent_moments_u_a2": [
+            0.6046367158882613,
+            1.1608638595190908,
+            1.8169962054804767
+          ],
+          "isotopologue_moments_u_a2": [
+            0.6123091221310599,
+            1.160847468631813,
+            1.8248095891877527
+          ],
+          "delta_planar_moments_u_a2": [
+            6.229328859985728e-05,
+            0.007751090418676165,
+            -7.86841758775303e-05
+          ],
+          "condition_number": 1.7915674206495282,
+          "any_imaginary_axis": true,
+          "axes": {
+            "a": {
+              "axis": "a",
+              "delta_planar_moment_u_a2": 6.229328859985728e-05,
+              "rs_squared_a2": 3.4060283981387806e-05,
+              "imaginary_axis": false,
+              "abs_coord_angstrom": 0.005836118914260384,
+              "imaginary_magnitude_angstrom": null,
+              "costain_uncertainty_angstrom": 0.25702012279681186,
+              "experimental_uncertainty_angstrom": 0.000867389211229202,
+              "total_uncertainty_angstrom": 0.2570215864213199,
+              "warning": "Small coordinate |a| = 0.00584 A (< 0.15 A): large Costain uncertainty (0.25702 A)."
+            },
+            "b": {
+              "axis": "b",
+              "delta_planar_moment_u_a2": 0.007751090418676165,
+              "rs_squared_a2": 0.004298697095837855,
+              "imaginary_axis": false,
+              "abs_coord_angstrom": 0.06556444993926094,
+              "imaginary_magnitude_angstrom": null,
+              "costain_uncertainty_angstrom": 0.022878251878717865,
+              "experimental_uncertainty_angstrom": 7.98769069140951e-05,
+              "total_uncertainty_angstrom": 0.022878391319022317,
+              "warning": "Small coordinate |b| = 0.06556 A (< 0.15 A): large Costain uncertainty (0.02288 A)."
+            },
+            "c": {
+              "axis": "c",
+              "delta_planar_moment_u_a2": -7.86841758775303e-05,
+              "rs_squared_a2": -4.414519381223431e-05,
+              "imaginary_axis": true,
+              "abs_coord_angstrom": null,
+              "imaginary_magnitude_angstrom": 0.006644184962223306,
+              "costain_uncertainty_angstrom": null,
+              "experimental_uncertainty_angstrom": null,
+              "total_uncertainty_angstrom": null,
+              "warning": "Imaginary Kraitchman coordinate on c-axis (r_s^2 = -4.414519e-05 A^2, i*0.00664 A): near-axis atom or zero-point vibrational/inertial-defect contamination (Costain limitation); NOT clipped to 0.0."
+            }
+          }
+        },
+        "H": {
+          "atom_label": "H",
+          "reduced_mass_u": 0.9530295811044847,
+          "parent_moments_u_a2": [
+            0.6046367158882613,
+            1.1608638595190908,
+            1.8169962054804767
+          ],
+          "isotopologue_moments_u_a2": [
+            0.7199831670730928,
+            1.8518031626440246,
+            2.6314222657238933
+          ],
+          "delta_planar_moments_u_a2": [
+            0.6950094560917592,
+            0.11941660415165722,
+            -0.004070152966825558
+          ],
+          "condition_number": 1.7915674206495282,
+          "any_imaginary_axis": true,
+          "axes": {
+            "a": {
+              "axis": "a",
+              "delta_planar_moment_u_a2": 0.6950094560917592,
+              "rs_squared_a2": 0.574620136899827,
+              "imaginary_axis": false,
+              "abs_coord_angstrom": 0.7580370287128637,
+              "imaginary_magnitude_angstrom": null,
+              "costain_uncertainty_angstrom": 0.0019787951553593354,
+              "experimental_uncertainty_angstrom": 2.102190992915165e-06,
+              "total_uncertainty_angstrom": 0.0019787962719998607,
+              "warning": null
+            },
+            "b": {
+              "axis": "b",
+              "delta_planar_moment_u_a2": 0.11941660415165722,
+              "rs_squared_a2": 0.28361638213413387,
+              "imaginary_axis": false,
+              "abs_coord_angstrom": 0.532556459104698,
+              "imaginary_magnitude_angstrom": null,
+              "costain_uncertainty_angstrom": 0.0028166027739513484,
+              "experimental_uncertainty_angstrom": 4.563388785859685e-06,
+              "total_uncertainty_angstrom": 0.0028166064706926387,
+              "warning": null
+            },
+            "c": {
+              "axis": "c",
+              "delta_planar_moment_u_a2": -0.004070152966825558,
+              "rs_squared_a2": -0.007941918170204194,
+              "imaginary_axis": true,
+              "abs_coord_angstrom": null,
+              "imaginary_magnitude_angstrom": 0.08911744032569716,
+              "costain_uncertainty_angstrom": null,
+              "experimental_uncertainty_angstrom": null,
+              "total_uncertainty_angstrom": null,
+              "warning": "Imaginary Kraitchman coordinate on c-axis (r_s^2 = -7.941918e-03 A^2, i*0.08912 A): near-axis atom or zero-point vibrational/inertial-defect contamination (Costain limitation); NOT clipped to 0.0."
+            }
+          }
+        }
+      },
+      "notes": [
+        "Direct Kraitchman substitution using O (0.06556 A on b) and H (|a|=0.75804 A, |b|=0.53256 A).",
+        "COM first-moment residual along b-axis: -0.02475 u*A.",
+        "[O:a] Small coordinate |a| = 0.00584 A (< 0.15 A): large Costain uncertainty (0.25702 A).",
+        "[O:b] Small coordinate |b| = 0.06556 A (< 0.15 A): large Costain uncertainty (0.02288 A).",
+        "[O:c] Imaginary Kraitchman coordinate on c-axis (r_s^2 = -4.414519e-05 A^2, i*0.00664 A): near-axis atom or zero-point vibrational/inertial-defect contamination (Costain limitation); NOT clipped to 0.0.",
+        "[H:c] Imaginary Kraitchman coordinate on c-axis (r_s^2 = -7.941918e-03 A^2, i*0.08912 A): near-axis atom or zero-point vibrational/inertial-defect contamination (Costain limitation); NOT clipped to 0.0."
+      ]
+    },
+    "r_0_weighted_fit": {
+      "status": "VERIFIED",
+      "bond_label": "r(O-H)",
+      "angle_label": "angle(H-O-H)",
+      "bond_angstrom": 0.9574701680195489,
+      "bond_std_err_scaled_angstrom": 0.0011910091375419516,
+      "bond_std_err_unscaled_angstrom": 2.5705572314594533e-08,
+      "angle_deg": 104.98392675226545,
+      "angle_std_err_scaled_deg": 0.16425686018042907,
+      "angle_std_err_unscaled_deg": 3.5451588610398357e-06,
+      "n_observations": 12,
+      "degrees_of_freedom": 10,
+      "rms_residual_mhz": 3913.853583729552,
+      "chi_squared": 21467211338.37486,
+      "reduced_chi_squared": 2146721133.8374858,
+      "condition_number": 21890.229586039884,
+      "correlation_matrix": [
+        [
+          1.0,
+          -0.36206982462632015
+        ],
+        [
+          -0.36206982462632015,
+          1.0
+        ]
+      ],
+      "residuals": [
+        {
+          "species_id": "H2O",
+          "axis": "A",
+          "observed_mhz": 835839.1,
+          "calculated_mhz": 830699.5091990913,
+          "uncertainty_mhz": 0.13,
+          "weight_mhz_inv2": 59.17159763313609,
+          "residual_mhz": -5139.590800908627,
+          "weighted_residual": -39535.31385314328
+        },
+        {
+          "species_id": "H2O",
+          "axis": "B",
+          "observed_mhz": 435347.353,
+          "calculated_mhz": 434622.0434709512,
+          "uncertainty_mhz": 0.027,
+          "weight_mhz_inv2": 1371.7421124828534,
+          "residual_mhz": -725.3095290487981,
+          "weighted_residual": -26863.315890696227
+        },
+        {
+          "species_id": "H2O",
+          "axis": "C",
+          "observed_mhz": 278139.826,
+          "calculated_mhz": 285334.83637939236,
+          "uncertainty_mhz": 0.057,
+          "weight_mhz_inv2": 307.7870113881194,
+          "residual_mhz": 7195.010379392363,
+          "weighted_residual": 126228.25227004143
+        },
+        {
+          "species_id": "H2(18O)",
+          "axis": "A",
+          "observed_mhz": 825365.8,
+          "calculated_mhz": 820347.3643434668,
+          "uncertainty_mhz": 10.2,
+          "weight_mhz_inv2": 0.009611687812379855,
+          "residual_mhz": -5018.435656533227,
+          "weighted_residual": -492.00349573855175
+        },
+        {
+          "species_id": "H2(18O)",
+          "axis": "B",
+          "observed_mhz": 435353.5,
+          "calculated_mhz": 434622.0434709512,
+          "uncertainty_mhz": 5.1,
+          "weight_mhz_inv2": 0.03844675124951942,
+          "residual_mhz": -731.4565290487953,
+          "weighted_residual": -143.42284883309713
+        },
+        {
+          "species_id": "H2(18O)",
+          "axis": "C",
+          "observed_mhz": 276948.9,
+          "calculated_mhz": 284103.37784081744,
+          "uncertainty_mhz": 5.1,
+          "weight_mhz_inv2": 0.03844675124951942,
+          "residual_mhz": 7154.477840817417,
+          "weighted_residual": 1402.8387923171408
+        },
+        {
+          "species_id": "D2O",
+          "axis": "A",
+          "observed_mhz": 462278.942,
+          "calculated_mhz": 462117.12548347673,
+          "uncertainty_mhz": 0.078,
+          "weight_mhz_inv2": 164.3655489809336,
+          "residual_mhz": -161.81651652324945,
+          "weighted_residual": -2074.570724657044
+        },
+        {
+          "species_id": "D2O",
+          "axis": "B",
+          "observed_mhz": 218038.287,
+          "calculated_mhz": 217478.0737137517,
+          "uncertainty_mhz": 0.039,
+          "weight_mhz_inv2": 657.4621959237344,
+          "residual_mhz": -560.2132862482977,
+          "weighted_residual": -14364.443237135838
+        },
+        {
+          "species_id": "D2O",
+          "axis": "C",
+          "observed_mhz": 145258.0,
+          "calculated_mhz": 147882.65484953191,
+          "uncertainty_mhz": 0.16,
+          "weight_mhz_inv2": 39.0625,
+          "residual_mhz": 2624.654849531915,
+          "weighted_residual": 16404.092809574468
+        },
+        {
+          "species_id": "HDO",
+          "axis": "A",
+          "observed_mhz": 701931.7,
+          "calculated_mhz": 699925.7344592846,
+          "uncertainty_mhz": 1.0,
+          "weight_mhz_inv2": 1.0,
+          "residual_mhz": -2005.9655407153768,
+          "weighted_residual": -2005.9655407153768
+        },
+        {
+          "species_id": "HDO",
+          "axis": "B",
+          "observed_mhz": 272911.84,
+          "calculated_mhz": 272532.641474351,
+          "uncertainty_mhz": 0.51,
+          "weight_mhz_inv2": 3.8446751249519417,
+          "residual_mhz": -379.19852564902976,
+          "weighted_residual": -743.5265208804504
+        },
+        {
+          "species_id": "HDO",
+          "axis": "C",
+          "observed_mhz": 192055.458,
+          "calculated_mhz": 196155.03755101774,
+          "uncertainty_mhz": 0.078,
+          "weight_mhz_inv2": 164.3655489809336,
+          "residual_mhz": 4099.579551017727,
+          "weighted_residual": 52558.712192534964
+        }
+      ]
+    },
+    "r_e_se": {
+      "status": "PENDING",
+      "reason": "Semi-experimental equilibrium structure r_e^SE requires verified isotope-specific anharmonic vibrational corrections Delta_B_vib (B_e^SE = B_0^exp - Delta_B_vib); never equated with B_0 or r_0.",
+      "bond_angstrom": null,
+      "angle_deg": null
+    }
+  },
+  "experimental_provenance": {
+    "source_doi": "10.1021/jp511432m",
+    "supporting_information_doi": "10.1021/jp511432m.s001",
+    "citation": "Piccardo, M.; Penocchio, E.; Puzzarini, C.; Biczysko, M.; Barone, V. J. Phys. Chem. A 2015, 119, 2058-2082, SI Table 1 (reproduced experimental B0 constants).",
+    "reference_packet_pdf_sha256": "e59b65d62b7fd525cc1d143d53ef4916afccbbcdaf80114d20b612e8e62651ce",
+    "reference_packet_txt_sha256": "3aa545a02491883d731fe20674236241ce709ae542750f1040dd29b1af5abdf5",
+    "note": "Parenthetical uncertainties from Piccardo 2015 SI Table 1 are preserved explicitly as experimental weights (w_i = 1 / sigma_i^2) for r0 fitting."
+  }
+}

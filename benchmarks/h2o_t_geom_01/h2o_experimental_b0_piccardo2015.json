@@ -1,0 +1,43 @@
+{
+  "schema_version": "cochem.geom.experimental-b0-packet/1",
+  "molecule": "H2O",
+  "symmetry": "C2v",
+  "provenance": {
+    "source_doi": "10.1021/jp511432m",
+    "supporting_information_doi": "10.1021/jp511432m.s001",
+    "citation": "Piccardo, M.; Penocchio, E.; Puzzarini, C.; Biczysko, M.; Barone, V. J. Phys. Chem. A 2015, 119, 2058-2082, SI Table 1 (reproduced experimental B0 constants).",
+    "reference_packet_pdf_sha256": "e59b65d62b7fd525cc1d143d53ef4916afccbbcdaf80114d20b612e8e62651ce",
+    "reference_packet_txt_sha256": "3aa545a02491883d731fe20674236241ce709ae542750f1040dd29b1af5abdf5",
+    "note": "Parenthetical uncertainties from Piccardo 2015 SI Table 1 are preserved explicitly as experimental weights (w_i = 1 / sigma_i^2) for r0 fitting."
+  },
+  "isotopologues": [
+    {
+      "species_id": "H2O",
+      "symbols": ["16O", "1H", "1H"],
+      "rotational_constants_mhz": [835839.10, 435347.353, 278139.826],
+      "uncertainties_mhz": [0.13, 0.027, 0.057],
+      "source_citation": "Matsushima et al. J. Mol. Struct. 1995, 352, 371-378 (via Piccardo 2015 SI Table 1, lines 268-270)."
+    },
+    {
+      "species_id": "H2(18O)",
+      "symbols": ["18O", "1H", "1H"],
+      "rotational_constants_mhz": [825365.8, 435353.5, 276948.9],
+      "uncertainties_mhz": [10.2, 5.1, 5.1],
+      "source_citation": "Piccardo 2015 SI Table 1, lines 290-293 (ref 45)."
+    },
+    {
+      "species_id": "D2O",
+      "symbols": ["16O", "2H", "2H"],
+      "rotational_constants_mhz": [462278.942, 218038.287, 145258.00],
+      "uncertainties_mhz": [0.078, 0.039, 0.16],
+      "source_citation": "Piccardo 2015 SI Table 1, lines 271-273 (ref 40)."
+    },
+    {
+      "species_id": "HDO",
+      "symbols": ["16O", "1H", "2H"],
+      "rotational_constants_mhz": [701931.7, 272911.84, 192055.458],
+      "uncertainties_mhz": [1.0, 0.51, 0.078],
+      "source_citation": "Piccardo 2015 SI Table 1, lines 274-276 (ref 41)."
+    }
+  ]
+}

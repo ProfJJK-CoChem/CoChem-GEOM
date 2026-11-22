@@ -1,1 +1,0 @@
-"""CoChem-GEOM core package."""

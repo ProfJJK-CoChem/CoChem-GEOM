@@ -1,0 +1,23 @@
+{
+  "schema_version": "cochem.geom.pipeline500-continuation/1",
+  "target_system": "HCOOH...DME (14 atoms, 5 FTMW isotopologues)",
+  "current_status": {
+    "ftmw_pickett_var_ingestion": "VERIFIED (5/5 real .var decks parsed with fitted uncertainties & correlations)",
+    "ccsd_equilibrium_geometry": "PENDING",
+    "vpt2_anharmonic_delta_b_vib": "PENDING",
+    "re_se_structural_fit": "PENDING"
+  },
+  "blocking_reason": "Zero converged CCSD/CCSD(T) geometry optimizations exist on disk for HCOOH...DME (legacy ORCA DLPNO-CCSD(T) Opt jobs failed because ORCA MDCI lacks analytic DLPNO gradients). Must be submitted through Pipeline 5.0.0 cloud/workstation runner.",
+  "recommended_pipeline_500_jobs": [
+    {
+      "job_id": "hcooh_dme_ccsd_cc_pvdz_opt_freq",
+      "backend": "orca_ccsd_or_pyscf_gpu",
+      "method": "canonical CCSD/cc-pVDZ TightOpt Freq (or CCSD(T) numerical gradient on HPC)",
+      "convergence_gates": {
+        "max_gradient_eh_bohr_le": 1e-05,
+        "n_imaginary_modes": 0
+      }
+    }
+  ],
+  "parsed_bundle_file": "hcooh_dme_parsed_decks.json"
+}

@@ -4,7 +4,7 @@
 
 ### **1\. Purpose & Scope**
 
-Safely parse incoming experimental data (Pickett/SpycFit) and intercept malformed assignments before tensor generation begins. Actively filters isotopic assignments against natural abundance thresholds.
+Safely parse incoming experimental data (Pickett/CoChem-SPYFY) and intercept malformed assignments before tensor generation begins. Actively filters isotopic assignments against natural abundance thresholds.
 
 ### **2\. Required Imports & Dependencies**
 
@@ -39,4 +39,4 @@ class ExperimentalConstant:
 
 ### **5\. Native Integration**
 
-> * Must also natively read CoChem-SpycFit JSON payloads, mapping them directly to the ExperimentalConstant dataclasses without invoking the regex engine.
+> * Must also natively read CoChem-SPYFY JSON payloads, mapping them directly to the ExperimentalConstant dataclasses without invoking the regex engine.

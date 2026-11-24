@@ -23,7 +23,7 @@ from .pickett import (
     parse_pickett_lin,
     parse_pickett_par,
     parse_pickett_var,
-    parse_spycfit_json,
+    parse_spyfy_json,
 )
 from .r0_fitter import IsotopologueObservation, fit_c2v_triatomic_r0
 from .reporting import (
@@ -50,7 +50,7 @@ def _cmd_parse_pickett(args: argparse.Namespace) -> int:
     elif suffix == ".lin":
         out = {"lines": [ln.model_dump(mode="json") for ln in parse_pickett_lin(path)]}
     elif suffix == ".json":
-        out = parse_spycfit_json(path).model_dump(mode="json")
+        out = parse_spyfy_json(path).model_dump(mode="json")
     else:
         raise ValueError(f"Unsupported file type: {suffix}")
 
@@ -243,7 +243,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_parse = sub.add_parser("parse-pickett", help="Parse a Pickett .var/.par/.fit/.lin or SpycFit .json file.")
+    p_parse = sub.add_parser("parse-pickett", help="Parse a Pickett .var/.par/.fit/.lin or CoChem-SPYFY .json file.")
     p_parse.add_argument("path", help="Path to input spectroscopic file.")
     p_parse.add_argument("--out", help="Optional path to write JSON output.")
     p_parse.set_defaults(func=_cmd_parse_pickett)

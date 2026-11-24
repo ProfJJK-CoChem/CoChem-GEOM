@@ -1,4 +1,4 @@
-"""Tests for Pickett (.var, .par, .fit, .lin) and SpycFit JSON ingestion."""
+"""Tests for Pickett (.var, .par, .fit, .lin) and CoChem-SPYFY JSON ingestion."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from cochem_geom.pickett import (
     parse_pickett_lin,
     parse_pickett_par,
     parse_pickett_var,
-    parse_spycfit_json,
+    parse_spyfy_json,
 )
 
 def _resolve_pickett_decks_dir() -> Path:
@@ -157,16 +157,16 @@ def test_missing_or_zero_uncertainty_strictly_raises_value_error(tmp_path: Path)
     with pytest.raises(ValueError, match="strictly positive"):
         parse_pickett_lin(zero_lin)
 
-    # 4. SpycFit JSON with missing uncertainty
+    # 4. CoChem-SPYFY JSON with missing uncertainty
     missing_json = tmp_path / "missing.json"
     missing_json.write_text(
         json.dumps({"species_id": "H2O", "optimized_constants": {"A": {"value": 835839.1}}}),
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="Missing 'uncertainty'"):
-        parse_spycfit_json(missing_json)
+        parse_spyfy_json(missing_json)
 
-    # 5. SpycFit JSON with zero uncertainty
+    # 5. CoChem-SPYFY JSON with zero uncertainty
     zero_json = tmp_path / "zero.json"
     zero_json.write_text(
         json.dumps(
@@ -175,4 +175,4 @@ def test_missing_or_zero_uncertainty_strictly_raises_value_error(tmp_path: Path)
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="strictly positive"):
-        parse_spycfit_json(zero_json)
+        parse_spyfy_json(zero_json)

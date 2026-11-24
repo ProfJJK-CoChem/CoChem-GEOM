@@ -22,7 +22,7 @@ from .pickett import (
     parse_pickett_lin,
     parse_pickett_par,
     parse_pickett_var,
-    parse_spycfit_json,
+    parse_spyfy_json,
 )
 from .r0_fitter import IsotopologueObservation, fit_c2v_triatomic_r0
 
@@ -67,7 +67,7 @@ def dispatch_operation(operation: str, payload: dict[str, Any]) -> dict[str, Any
         if suffix == ".lin":
             return {"lines": [ln.model_dump(mode="json") for ln in parse_pickett_lin(path)]}
         if suffix == ".json":
-            return parse_spycfit_json(path).model_dump(mode="json")
+            return parse_spyfy_json(path).model_dump(mode="json")
         raise ValueError(f"Unsupported Pickett file suffix: {suffix!r}")
 
     if operation == "fit_kraitchman_rs":

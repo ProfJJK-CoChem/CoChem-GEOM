@@ -1,6 +1,6 @@
 ### **Architecture Mode: Final CoChem-GEOM (v4.0) Master Blueprint**
 
-**Project Intent & Scope** **CoChem-GEOM** serves as the definitive precision molecular structure determination module for the CoChem ecosystem. It bridges the gap between theoretical quantum chemistry (ORCA 6.1.1, CoChem-BASE) and experimental rotational observables (CoChem-TORQ, CoChem-SpycFit). Designed to handle everything from highly fluxional 3-atom van der Waals complexes up to rigid 100-atom frameworks, it derives exact geometric parameters (r\_0, r\_s, r\_z, r\_m, r\_e, r\_e^{\\text{SE}}). The v4.0 architecture integrates all 28 approved deep, moderate, and shallow enhancements—featuring dynamic bounds autotuning, sparse matrix inversions, Pickett pre-flight syntax validation, interactive correlation filters, and comprehensive publication generators.
+**Project Intent & Scope** **CoChem-GEOM** serves as the definitive precision molecular structure determination module for the CoChem ecosystem. It bridges the gap between theoretical quantum chemistry (ORCA 6.1.1, CoChem-BASE) and experimental rotational observables (CoChem-TORQ, CoChem-SPYFY). Designed to handle everything from highly fluxional 3-atom van der Waals complexes up to rigid 100-atom frameworks, it derives exact geometric parameters (r\_0, r\_s, r\_z, r\_m, r\_e, r\_e^{\\text{SE}}). The v4.0 architecture integrates all 28 approved deep, moderate, and shallow enhancements—featuring dynamic bounds autotuning, sparse matrix inversions, Pickett pre-flight syntax validation, interactive correlation filters, and comprehensive publication generators.
 
 ### **Hierarchical Module Architecture**
 
@@ -24,7 +24,7 @@
 #### **Stage 1.0: Master Ingestion & Pre-Flight Validation (cochem\_geom\_ingest.py)**
 
 > * **Responsibilities:**  
-  * **Dual Native Ingestion & Syntax Validator:** Parses native CoChem-SpycFit JSON/Parquet outputs alongside Pickett .lin/.fit/.par files. Implements a **Pre-Flight Parser** to intercept malformed quantum number assignments (J, K\_a, K\_c) before launching fits.  
+  * **Dual Native Ingestion & Syntax Validator:** Parses native CoChem-SPYFY JSON/Parquet outputs alongside Pickett .lin/.fit/.par files. Implements a **Pre-Flight Parser** to intercept malformed quantum number assignments (J, K\_a, K\_c) before launching fits.  
   * **Automated Isotope Natural Abundance Filtering:** Automatically flags experimental rotational constants corresponding to rare isotopologues (natural abundance \< **0.01%**) for user review, preventing spectral noise from skewing fits unless enrichment is explicitly specified.  
   * **Mendeleev Monoisotopic Mass Engine:** Queries the mendeleev Python library for exact CIAAW/AME2020 monoisotopic masses.  
   * **Axis Reorientation Detection:** Tracks Eckart transformation matrices to automatically detect and correct a \\leftrightarrow b \\leftrightarrow c principal axis swaps upon isotopic substitution.  
@@ -65,7 +65,7 @@
 
 `[Experimental Data]                        [Theoretical Data]`  
  `Pickett (.lin/.fit/.par)                   ORCA VPT2 / CCSD(T)`  
- `CoChem-SpycFit Output                      CoChem-BASE / TORQ`  
+ `CoChem-SPYFY Output                      CoChem-BASE / TORQ`  
          `│                                          │`  
          `└───────────────────┬──────────────────────┘`  
                              `▼`  

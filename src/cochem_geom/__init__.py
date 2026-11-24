@@ -48,7 +48,7 @@ from .pickett import (
     parse_pickett_lin,
     parse_pickett_par,
     parse_pickett_var,
-    parse_spycfit_json,
+    parse_spyfy_json,
 )
 from .provider import geom_provider
 from .r0_fitter import (
@@ -85,7 +85,7 @@ __all__ = [
     "parse_pickett_lin",
     "parse_pickett_par",
     "parse_pickett_var",
-    "parse_spycfit_json",
+    "parse_spyfy_json",
     "ElectronicCorrectionResult",
     "align_to_principal_axes",
     "apply_rotational_g_tensor_correction",

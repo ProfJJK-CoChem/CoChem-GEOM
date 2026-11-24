@@ -9,7 +9,7 @@
 
 ## 1. Scientific Scope
 
-`CoChem-GEOM` bridges experimental CP-FTMW rotational spectroscopy (Pickett SPFIT/SPCAT `.var`/`.par`/`.fit`/`.lin` and `CoChem-SpycFit` JSON payloads) with converged canonical *ab initio* CCSD equilibrium structures ($r_e$) to produce transparent, provenance-verified structural comparisons for `CHEM 490` directed research and `CHEM 411` Physical Chemistry II:
+`CoChem-GEOM` bridges experimental CP-FTMW rotational spectroscopy (Pickett SPFIT/SPCAT `.var`/`.par`/`.fit`/`.lin` and `CoChem-SPYFY` JSON payloads) with converged canonical *ab initio* CCSD equilibrium structures ($r_e$) to produce transparent, provenance-verified structural comparisons for `CHEM 490` directed research and `CHEM 411` Physical Chemistry II:
 
 - **Pickett SPFIT Ingestion (`cochem_geom.pickett`):**
   - Parses `.var` for true fitted rotational constants, fitted standard uncertainties, and reconstructs the exact parameter correlation matrix $R = L^\top L$ (and covariance matrix) from SPFIT's triangular Cholesky block.
@@ -40,7 +40,7 @@ python -m pytest tests/ -q
 ### CLI Usage (`cochem-geom`)
 
 ```bash
-# Parse a Pickett .var / .par / .fit / .lin or SpycFit .json deck
+# Parse a Pickett .var / .par / .fit / .lin or CoChem-SPYFY .json deck
 cochem-geom parse-pickett path/to/fa_dme_parent_spfit.var
 
 # Reproduce T-GEOM-01 H2O structural comparison from verified on-disk CCSD outputs
@@ -62,7 +62,13 @@ cochem-geom bundle-hcooh-dme \
 
 ---
 
-## 3. Benchmarks & Qualification Receipts
+## 3. Documentation & User Guide
+
+- **[User Guide (`docs/USER_GUIDE.md`)](docs/USER_GUIDE.md)** — Worked CLI and Python examples for Pickett `.var`/`.par`/`.fit`/`.lin` and `CoChem-SPYFY` JSON ingestion, honest Kraitchman $r_s$ substitution coordinates, weighted $r_0$ fitting, canonical CCSD structural comparison, and Stage 2.1 `"C1"` symmetry-fallback warnings.
+
+---
+
+## 4. Benchmarks & Qualification Receipts
 
 - `benchmarks/h2o_t_geom_01/`: Qualified `T-GEOM-01` `H2O` isotopologue benchmark (`Piccardo et al. JPCA 2015` SI Table 1 experimental $B_0$ + converged ORCA 6.1.1 `CCSD/cc-pVTZ` + converged PySCF CPU `CCSD/cc-pVDZ` + separated JSON/LaTeX structural comparison).
 - `benchmarks/hcooh_dme_rung2/`: Rung-2 `HCOOH···DME` 5-isotopologue `.var` parsed bundle and Pipeline 5.0.0 continuation manifest (`CCSD` equilibrium geometry and $r_e^{\text{SE}}$ explicitly `PENDING`).

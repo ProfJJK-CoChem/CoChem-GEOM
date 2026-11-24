@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CoChem-GEOM Stage 1.0: Pickett (.var/.par/.fit/.lin) & SpycFit JSON Ingestion.
+"""CoChem-GEOM Stage 1.0: Pickett (.var/.par/.fit/.lin) & CoChem-SPYFY JSON Ingestion.
 
 Delegates to `cochem_geom.pickett` while preserving the `SpectraIngestionEngine`
 and `ExperimentalConstant` compatibility API.
@@ -24,7 +24,7 @@ from cochem_geom.pickett import (
     parse_pickett_lin,
     parse_pickett_par,
     parse_pickett_var,
-    parse_spycfit_json,
+    parse_spyfy_json,
 )
 
 logger = logging.getLogger(__name__)
@@ -83,8 +83,8 @@ class SpectraIngestionEngine:
     def parse_pickett_fit(self, fit_path: Path) -> PickettFitSummary:
         return parse_pickett_fit(fit_path)
 
-    def parse_spycfit_json(self, json_path: Path) -> list[ExperimentalConstant]:
-        deck = parse_spycfit_json(json_path)
+    def parse_spyfy_json(self, json_path: Path) -> list[ExperimentalConstant]:
+        deck = parse_spyfy_json(json_path)
         return _deck_to_constants(deck)
 
     def filter_isotopic_abundance(

@@ -1,4 +1,4 @@
-"""Rock-solid Pickett SPFIT (.var, .par, .fit, .lin) and SpycFit JSON parser.
+"""Rock-solid Pickett SPFIT (.var, .par, .fit, .lin) and CoChem-SPYFY JSON parser.
 
 Key scientific safeguards:
 - Never drops line 0 on compact parameter decks and never truncates indented
@@ -746,22 +746,22 @@ def parse_pickett_fit(path: Path | str) -> PickettFitSummary:
     )
 
 
-def parse_spycfit_json(path: Path | str) -> PickettDeck:
-    """Parse a SpycFit/CoChem JSON spectroscopic constants payload.
+def parse_spyfy_json(path: Path | str) -> PickettDeck:
+    """Parse a CoChem-SPYFY JSON spectroscopic constants payload.
 
     Strictly requires finite, strictly positive uncertainties for every constant;
     never silently substitutes 0.0 when an uncertainty is missing or zero.
     """
     p = Path(path)
     if not p.is_file():
-        raise FileNotFoundError(f"SpycFit JSON file not found: {p}")
+        raise FileNotFoundError(f"CoChem-SPYFY JSON file not found: {p}")
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        raise ValueError(f"Corrupted SpycFit JSON payload {p.name}: {exc}") from exc
+        raise ValueError(f"Corrupted CoChem-SPYFY JSON payload {p.name}: {exc}") from exc
 
     if not isinstance(data, dict):
-        raise ValueError(f"SpycFit JSON payload {p.name} must be a JSON object.")
+        raise ValueError(f"CoChem-SPYFY JSON payload {p.name} must be a JSON object.")
 
     species_id = str(data.get("species_id") or p.stem)
     reduction_raw = str(data.get("reduction", "A")).upper()

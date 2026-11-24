@@ -31,7 +31,7 @@
 **Stage 1.0: Ingestion & Pre-Flight Syntax Validator**
 
 > * **Purpose:** Safely parse incoming data and intercept malformed assignments before tensor generation.  
-> * **Inputs:** Pickett files (.lin, .par, .fit), CoChem-SpycFit JSON payloads.  
+> * **Inputs:** Pickett files (.lin, .par, .fit), CoChem-SPYFY JSON payloads.  
 > * **Outputs:** Cleaned Python dictionaries of transition frequencies and preliminary constants.  
 > * **Files created or modified:** cochem\_geom\_ingest\_parser.py  
 > * **Key dependencies:** re, json, pandas.  

@@ -1,0 +1,24 @@
+name: Zero-Mock CI Gate
+
+on:
+  push:
+    branches:
+      - main
+      - "fix/*"
+  pull_request:
+
+jobs:
+  zero_mock_gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pytest
+        run: python -m pip install --upgrade pip pytest
+      - name: Run zero-mock and mockup-leak firewall gate
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python -B -m pytest tests/test_zero_mock_and_no_sim_gate.py -q

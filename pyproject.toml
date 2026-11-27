@@ -45,7 +45,12 @@ geom = "cochem_geom.provider:geom_provider"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["cochem_geom*"]
+include = [
+    "cochem_geom",
+    "cochem_geom.engine",
+    "cochem_geom.interfaces",
+    "cochem_geom.literature",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
